@@ -1,0 +1,15 @@
+﻿[package]
+name = "pd-js"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+boa_engine = "0.20.0"
+pd-dom.workspace = true

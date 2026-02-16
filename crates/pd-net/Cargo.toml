@@ -1,0 +1,27 @@
+﻿[package]
+name = "pd-net"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = ["tls-rustls"]
+tls-rustls = ["dep:rustls", "dep:rustls-native-certs", "dep:webpki-roots"]
+
+[dependencies]
+brotli = "8.0.2"
+flate2 = "1.1.5"
+pd-core.workspace = true
+pd-privacy.workspace = true
+pd-security.workspace = true
+pd-storage.workspace = true
+rustls = { version = "0.23.36", optional = true }
+rustls-native-certs = { version = "0.8.2", optional = true }
+url = "2.5.7"
+webpki-roots = { version = "1.0.6", optional = true }

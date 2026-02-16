@@ -1,0 +1,53 @@
+﻿[workspace]
+members = [
+  "apps/pixeldust-browser",
+  "crates/pd-browser",
+  "crates/pd-core",
+  "crates/pd-css",
+  "crates/pd-dom",
+  "crates/pd-html",
+  "crates/pd-ipc",
+  "crates/pd-js",
+  "crates/pd-layout",
+  "crates/pd-net",
+  "crates/pd-privacy",
+  "crates/pd-render",
+  "crates/pd-renderer",
+  "crates/pd-security",
+  "crates/pd-storage",
+]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "Apache-2.0 OR MIT"
+authors = ["PixelDust Contributors"]
+repository = "https://github.com/pixeldust/pixeldust-browser"
+
+[workspace.dependencies]
+pd-browser = { path = "crates/pd-browser" }
+pd-core = { path = "crates/pd-core" }
+pd-css = { path = "crates/pd-css" }
+pd-dom = { path = "crates/pd-dom" }
+pd-html = { path = "crates/pd-html" }
+pd-ipc = { path = "crates/pd-ipc" }
+pd-js = { path = "crates/pd-js" }
+pd-layout = { path = "crates/pd-layout" }
+pd-net = { path = "crates/pd-net" }
+pd-privacy = { path = "crates/pd-privacy" }
+pd-render = { path = "crates/pd-render" }
+pd-renderer = { path = "crates/pd-renderer" }
+pd-security = { path = "crates/pd-security" }
+pd-storage = { path = "crates/pd-storage" }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+unused_crate_dependencies = "warn"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+todo = "deny"
+dbg_macro = "deny"
