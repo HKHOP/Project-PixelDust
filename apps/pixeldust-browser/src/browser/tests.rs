@@ -1,10 +1,12 @@
 #[cfg(test)]
 mod tests {
     use super::{
-        allow_page_script_source, cookie_domain_matches, decode_text_response, normalize_input_url,
+        allow_page_script_source, allow_subresource_request, cookie_domain_matches,
+        decode_text_response, format_js_error, format_script_origin, normalize_input_url,
         parse_charset_from_content_type, parse_charset_from_html_prefix, parse_set_cookie_header,
         same_navigation_target, same_origin, truncate_preview_text,
     };
+    use pd_browser::Browser;
 
     #[test]
     fn parses_charset_from_content_type_header() {
@@ -105,5 +107,46 @@ mod tests {
             "https://example.com/search?q=rust",
             "https://example.com/search?q=rust+lang"
         ));
+    }
+
+    #[test]
+    fn subresource_policy_allows_cross_origin_https_assets() {
+        let browser = Browser::new().unwrap_or_else(|_| unreachable!());
+        assert!(allow_subresource_request(
+            &browser,
+            "https://www.google.com/",
+            "https://www.gstatic.com/myscript.js"
+        ));
+    }
+
+    #[test]
+    fn subresource_policy_blocks_https_to_http_downgrade() {
+        let browser = Browser::new().unwrap_or_else(|_| unreachable!());
+        assert!(!allow_subresource_request(
+            &browser,
+            "https://www.example.com/",
+            "http://cdn.example.com/app.js"
+        ));
+    }
+
+    #[test]
+    fn script_origin_log_formatting_drops_query_noise() {
+        let formatted = format_script_origin(
+            "https://www.google.com/xjs/_/js/k=xjs.hd.en/path?very=long&token=abc#frag",
+        );
+        assert!(formatted.starts_with("https://www.google.com/xjs/_/js/k=xjs.hd.en/path"));
+        assert!(!formatted.contains("token="));
+        assert!(!formatted.contains("#frag"));
+    }
+
+    #[test]
+    fn js_error_messages_are_sanitized_for_ui() {
+        let message = format_js_error(
+            "https://example.com/script.js?huge=true",
+            "TypeError:\n  cannot\n   read\tproperty   'x' of undefined",
+        );
+        assert!(message.contains("TypeError: cannot read property 'x' of undefined"));
+        assert!(!message.contains('\n'));
+        assert!(!message.contains("?huge=true"));
     }
 }

@@ -20,6 +20,13 @@ globalThis.console = {
   warn: function () {},
   error: function () {}
 };
+globalThis.performance = {
+  now: function () { return Date.now(); },
+  timeOrigin: 0,
+  mark: function () {},
+  measure: function () {},
+  getEntriesByType: function () { return []; }
+};
 globalThis.__pd_timer_queue = [];
 globalThis.__pd_timer_cancelled = {};
 globalThis.__pd_next_timer_id = 1;
@@ -40,6 +47,26 @@ globalThis.setInterval = function (callback, delay) {
   return globalThis.setTimeout(callback, delay);
 };
 globalThis.clearInterval = globalThis.clearTimeout;
+globalThis.requestAnimationFrame = function (callback) {
+  return globalThis.setTimeout(function () {
+    if (typeof callback === "function") {
+      callback(globalThis.performance.now());
+    }
+  }, 16);
+};
+globalThis.cancelAnimationFrame = globalThis.clearTimeout;
+globalThis.matchMedia = function (query) {
+  return {
+    media: String(query || ""),
+    matches: false,
+    onchange: null,
+    addListener: function () {},
+    removeListener: function () {},
+    addEventListener: function () {},
+    removeEventListener: function () {},
+    dispatchEvent: function () { return true; }
+  };
+};
 globalThis.queueMicrotask = function (callback) {
   return globalThis.setTimeout(callback, 0);
 };
@@ -670,5 +697,18 @@ mod tests {
                 .as_deref()
                 .is_some_and(|cookie| cookie.contains("sid=abc") && cookie.contains("token=xyz"))
         );
+    }
+
+    #[test]
+    fn exposes_performance_and_animation_frame_shims() {
+        let runtime = JsRuntime::new(JsRuntimeConfig::default());
+        let scripts = vec![ScriptSource {
+            origin: "inline:raf".to_owned(),
+            source: "if (typeof performance === 'object' && typeof requestAnimationFrame === 'function') { requestAnimationFrame(function(){ document.title = 'raf-ok'; }); }".to_owned(),
+        }];
+
+        let output = runtime.execute_scripts_with_host(&JsHostEnvironment::default(), &scripts);
+        assert_eq!(output.report.scripts_failed, 0);
+        assert_eq!(output.document_title.as_deref(), Some("raf-ok"));
     }
 }

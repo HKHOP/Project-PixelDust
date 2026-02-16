@@ -264,28 +264,21 @@ impl BrowserUiApp {
                     page.js_execution.event_dispatches,
                     page.js_execution.event_failures
                 ));
+                if !page.js_execution.errors.is_empty() {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(200, 65, 65),
+                        format!(
+                            "JavaScript reported {} error(s). Press F12 for details.",
+                            page.js_execution.errors.len()
+                        ),
+                    );
+                }
                 if let Some(draw_calls) = page.renderer_draw_calls {
                     ui.label(format!("Renderer baseline draw calls: {draw_calls}"));
                 }
                 ui.separator();
 
-                if let Some(fallback_text) = page.static_text_fallback.as_ref() {
-                    ui.colored_label(
-                        egui::Color32::from_rgb(209, 153, 29),
-                        "This page is JavaScript-driven. Showing static fallback text.",
-                    );
-                    ui.separator();
-                    egui::ScrollArea::vertical()
-                        .id_salt("viewport_static_fallback_scroll")
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| {
-                            ui.label(
-                                egui::RichText::new(fallback_text.as_str())
-                                    .size(14.0)
-                                    .color(egui::Color32::from_rgb(226, 226, 226)),
-                            );
-                        });
-                } else if let Some(doc) = page.html_document.as_ref() {
+                if let Some(doc) = page.html_document.as_ref() {
                     let mut action = simple_html::RenderAction::default();
                     egui::ScrollArea::vertical()
                         .id_salt("viewport_html_scroll")
@@ -337,6 +330,43 @@ impl BrowserUiApp {
                     if let Some(js_nav) = dispatch_dom_events(page, &action.dom_events) {
                         *navigate_to = Some(js_nav);
                     }
+                    if let Some(fallback_text) = page.static_text_fallback.as_ref() {
+                        ui.separator();
+                        ui.colored_label(
+                            egui::Color32::from_rgb(209, 153, 29),
+                            "This page may depend on JavaScript. Static fallback text is available below.",
+                        );
+                        egui::CollapsingHeader::new("Show static fallback text")
+                            .id_salt("viewport_static_fallback_toggle")
+                            .show(ui, |ui| {
+                                egui::ScrollArea::vertical()
+                                    .id_salt("viewport_static_fallback_scroll")
+                                    .auto_shrink([false, false])
+                                    .show(ui, |ui| {
+                                        ui.label(
+                                            egui::RichText::new(fallback_text.as_str())
+                                                .size(14.0)
+                                                .color(egui::Color32::from_rgb(226, 226, 226)),
+                                        );
+                                    });
+                            });
+                    }
+                } else if let Some(fallback_text) = page.static_text_fallback.as_ref() {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(209, 153, 29),
+                        "This page is JavaScript-driven. Showing static fallback text.",
+                    );
+                    ui.separator();
+                    egui::ScrollArea::vertical()
+                        .id_salt("viewport_static_fallback_scroll")
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            ui.label(
+                                egui::RichText::new(fallback_text.as_str())
+                                    .size(14.0)
+                                    .color(egui::Color32::from_rgb(226, 226, 226)),
+                            );
+                        });
                 } else {
                     ui.label("Non-HTML response, showing raw preview.");
                     egui::ScrollArea::vertical()
@@ -409,9 +439,14 @@ impl BrowserUiApp {
             if !page.js_execution.errors.is_empty() {
                 ui.separator();
                 ui.label("JavaScript Errors");
-                for error in &page.js_execution.errors {
-                    ui.label(error);
-                }
+                egui::ScrollArea::vertical()
+                    .id_salt("js_error_log_scroll")
+                    .max_height(220.0)
+                    .show(ui, |ui| {
+                        for (index, error) in page.js_execution.errors.iter().enumerate() {
+                            ui.monospace(format!("{}. {}", index + 1, error));
+                        }
+                    });
             }
             ui.separator();
             ui.label("Response Headers");

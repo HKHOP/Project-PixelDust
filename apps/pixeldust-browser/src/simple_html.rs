@@ -206,6 +206,198 @@ struct TextEffects {
     script: Option<ScriptPosition>,
 }
 
+// Sourced from MDN HTML element reference:
+// https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements
+#[cfg_attr(not(test), allow(dead_code))]
+const MDN_REFERENCE_ELEMENTS: &[&str] = &[
+    "a",
+    "abbr",
+    "acronym",
+    "address",
+    "applet",
+    "area",
+    "article",
+    "aside",
+    "audio",
+    "b",
+    "base",
+    "basefont",
+    "bdi",
+    "bdo",
+    "bgsound",
+    "big",
+    "blink",
+    "blockquote",
+    "body",
+    "br",
+    "button",
+    "canvas",
+    "caption",
+    "center",
+    "cite",
+    "code",
+    "col",
+    "colgroup",
+    "content",
+    "data",
+    "datalist",
+    "dd",
+    "del",
+    "details",
+    "dfn",
+    "dialog",
+    "dir",
+    "div",
+    "dl",
+    "dt",
+    "em",
+    "embed",
+    "fencedframe",
+    "fieldset",
+    "figcaption",
+    "figure",
+    "font",
+    "footer",
+    "form",
+    "frame",
+    "frameset",
+    "geolocation",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "head",
+    "header",
+    "hgroup",
+    "hr",
+    "html",
+    "i",
+    "iframe",
+    "image",
+    "img",
+    "input",
+    "ins",
+    "kbd",
+    "keygen",
+    "label",
+    "legend",
+    "li",
+    "link",
+    "main",
+    "map",
+    "mark",
+    "marquee",
+    "math",
+    "menu",
+    "menuitem",
+    "meta",
+    "meter",
+    "multicol",
+    "nav",
+    "nextid",
+    "nobr",
+    "noembed",
+    "noframes",
+    "noscript",
+    "object",
+    "ol",
+    "optgroup",
+    "option",
+    "output",
+    "p",
+    "param",
+    "picture",
+    "plaintext",
+    "portal",
+    "pre",
+    "progress",
+    "q",
+    "rb",
+    "rp",
+    "rt",
+    "rtc",
+    "ruby",
+    "s",
+    "samp",
+    "script",
+    "search",
+    "section",
+    "select",
+    "selectedcontent",
+    "shadow",
+    "slot",
+    "small",
+    "source",
+    "spacer",
+    "span",
+    "strike",
+    "strong",
+    "style",
+    "sub",
+    "summary",
+    "sup",
+    "svg",
+    "table",
+    "tbody",
+    "td",
+    "template",
+    "textarea",
+    "tfoot",
+    "th",
+    "thead",
+    "time",
+    "title",
+    "tr",
+    "track",
+    "tt",
+    "u",
+    "ul",
+    "var",
+    "video",
+    "wbr",
+    "xmp",
+];
+
+fn canonical_element_tag(tag: &str) -> &str {
+    match tag {
+        "image" => "img",
+        _ => tag,
+    }
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+fn is_mdn_reference_element(tag: &str) -> bool {
+    let tag = canonical_element_tag(tag);
+    MDN_REFERENCE_ELEMENTS
+        .iter()
+        .any(|candidate| *candidate == tag)
+}
+
+fn is_non_rendered_element_tag(tag: &str) -> bool {
+    matches!(
+        canonical_element_tag(tag),
+        "base"
+            | "head"
+            | "link"
+            | "meta"
+            | "nextid"
+            | "noscript"
+            | "script"
+            | "style"
+            | "template"
+            | "title"
+    )
+}
+
+fn is_static_fallback_ignored_tag(tag: &str) -> bool {
+    matches!(
+        canonical_element_tag(tag),
+        "base" | "head" | "link" | "meta" | "nextid" | "script" | "style" | "template" | "title"
+    )
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 struct Edges {
     top: Option<f32>,
@@ -581,6 +773,11 @@ fn render_node(ui: &mut egui::Ui, node: &HtmlNode, ctx: &mut Ctx<'_>, inherited:
 }
 
 fn render_element(ui: &mut egui::Ui, el: &HtmlElement, ctx: &mut Ctx<'_>, inherited: &StyleProps) {
+    let tag = canonical_element_tag(el.tag.as_str());
+    if is_non_rendered_element_tag(tag) {
+        return;
+    }
+
     if element_has_hidden_semantics(el) {
         return;
     }
@@ -591,7 +788,7 @@ fn render_element(ui: &mut egui::Ui, el: &HtmlElement, ctx: &mut Ctx<'_>, inheri
     }
 
     ctx.ancestor_stack.push(selector_subject(el));
-    match el.tag.as_str() {
+    match tag {
         "h1" => render_heading(ui, el, &style, 32.0),
         "h2" => render_heading(ui, el, &style, 28.0),
         "h3" => render_heading(ui, el, &style, 24.0),
@@ -615,11 +812,20 @@ fn render_element(ui: &mut egui::Ui, el: &HtmlElement, ctx: &mut Ctx<'_>, inheri
         "dd" => render_definition_description(ui, el, ctx, &style),
         "form" => render_form(ui, el, ctx, &style),
         "center" => render_center(ui, el, ctx, &style),
+        "dialog" => {
+            render_box(ui, &style, |ui| {
+                for child in &el.children {
+                    render_node(ui, child, ctx, &style);
+                }
+            });
+            add_default_bottom_spacing(ui, &style, 2.0);
+        }
         "table" => render_table(ui, el, ctx, &style),
         "tr" => render_table_row(ui, el, ctx, &style, 0.0, 0.0),
         "td" | "th" => render_table_cell(ui, el, ctx, &style, None, ui.available_width(), 0.0),
         "ul" => render_list(ui, el, false, ctx, &style),
         "ol" => render_list(ui, el, true, ctx, &style),
+        "menu" | "dir" => render_list(ui, el, false, ctx, &style),
         "li" => {
             render_box(ui, &style, |ui| {
                 if is_rtl_layout(&style) {
@@ -637,12 +843,14 @@ fn render_element(ui: &mut egui::Ui, el: &HtmlElement, ctx: &mut Ctx<'_>, inheri
         }
         "img" => render_img(ui, el, ctx, &style),
         "input" => render_input(ui, el, ctx, &style, false),
+        "keygen" => render_input(ui, el, ctx, &style, false),
         "button" => render_button(ui, el, ctx, &style, false),
+        "menuitem" => render_button(ui, el, ctx, &style, false),
         "textarea" => render_textarea(ui, el, ctx, &style, false),
         "select" => render_select(ui, el, ctx, &style, false),
-        "video" | "audio" | "canvas" | "svg" | "iframe" | "embed" | "object" => {
-            render_embedded_content(ui, el, ctx, &style)
-        }
+        "video" | "audio" | "canvas" | "svg" | "math" | "iframe" | "fencedframe" | "portal"
+        | "frame" | "embed" | "object" | "applet" => render_embedded_content(ui, el, ctx, &style),
+        "plaintext" | "xmp" => render_pre(ui, el, &style),
         "a" => {
             render_box(ui, &style, |ui| {
                 if is_rtl_layout(&style) {
@@ -655,10 +863,9 @@ fn render_element(ui: &mut egui::Ui, el: &HtmlElement, ctx: &mut Ctx<'_>, inheri
             });
             add_default_bottom_spacing(ui, &style, 2.0);
         }
-        "script" | "style" | "noscript" => {}
         _ => {
             let display = style.display.unwrap_or_else(|| {
-                if is_block(&el.tag) {
+                if is_block(tag) {
                     Display::Block
                 } else {
                     Display::Inline
@@ -692,14 +899,16 @@ fn render_inline(ui: &mut egui::Ui, nodes: &[HtmlNode], ctx: &mut Ctx<'_>, inher
         match node {
             HtmlNode::Text(t) => render_text(ui, t, inherited, TextEffects::default()),
             HtmlNode::Element(el) => {
+                let tag = canonical_element_tag(el.tag.as_str());
                 let style = style_for(el, ctx.styles, inherited, &ctx.ancestor_stack);
-                if element_has_hidden_semantics(el)
+                if is_non_rendered_element_tag(tag)
+                    || element_has_hidden_semantics(el)
                     || style_suppresses_rendering(&style)
                     || is_likely_screen_reader_only(&style)
                 {
                     continue;
                 }
-                match el.tag.as_str() {
+                match tag {
                     "strong" | "b" => {
                         let t = collapse_whitespace(&collect_text(&el.children));
                         if !t.is_empty() {
@@ -852,18 +1061,23 @@ fn render_inline(ui: &mut egui::Ui, nodes: &[HtmlNode], ctx: &mut Ctx<'_>, inher
                     "br" => {
                         ui.label("");
                     }
-                    "script" | "style" | "noscript" => {}
                     "a" => render_link(ui, el, ctx, &style),
                     "img" => render_img(ui, el, ctx, &style),
                     "input" => render_input(ui, el, ctx, &style, true),
+                    "keygen" => render_input(ui, el, ctx, &style, true),
                     "button" => render_button(ui, el, ctx, &style, true),
+                    "menuitem" => render_button(ui, el, ctx, &style, true),
                     "textarea" => render_textarea(ui, el, ctx, &style, true),
                     "select" => render_select(ui, el, ctx, &style, true),
                     _ => {
-                        if matches!(
-                            style.display.unwrap_or(Display::Inline),
-                            Display::Block | Display::Flex
-                        ) {
+                        let display = style.display.unwrap_or_else(|| {
+                            if is_block(tag) {
+                                Display::Block
+                            } else {
+                                Display::Inline
+                            }
+                        });
+                        if matches!(display, Display::Block | Display::Flex) {
                             render_element(ui, el, ctx, inherited);
                         } else {
                             ctx.ancestor_stack.push(selector_subject(el));
@@ -1254,6 +1468,15 @@ fn render_table(ui: &mut egui::Ui, el: &HtmlElement, ctx: &mut Ctx<'_>, style: &
     }
 
     render_box(ui, &table_style, |ui| {
+        for child in &el.children {
+            let HtmlNode::Element(caption) = child else {
+                continue;
+            };
+            if canonical_element_tag(caption.tag.as_str()) == "caption" {
+                render_node(ui, child, ctx, &table_style);
+            }
+        }
+
         for (index, row) in rows.iter().enumerate() {
             if index > 0 && cell_spacing > 0.0 {
                 ui.add_space(cell_spacing);
@@ -2876,6 +3099,10 @@ fn collect_style_source(nodes: &[HtmlNode], inside_noscript: bool, out: &mut Str
             continue;
         };
 
+        if canonical_element_tag(el.tag.as_str()) == "template" {
+            continue;
+        }
+
         let next_inside_noscript = inside_noscript || el.tag == "noscript";
         if next_inside_noscript {
             continue;
@@ -2900,6 +3127,10 @@ fn count_style_tags_with_context(nodes: &[HtmlNode], inside_noscript: bool) -> u
             continue;
         };
 
+        if canonical_element_tag(el.tag.as_str()) == "template" {
+            continue;
+        }
+
         let next_inside_noscript = inside_noscript || el.tag == "noscript";
         if next_inside_noscript {
             continue;
@@ -2921,6 +3152,10 @@ fn collect_script_descriptors(nodes: &[HtmlNode], base_url: &str, out: &mut Vec<
         let HtmlNode::Element(el) = node else {
             continue;
         };
+
+        if canonical_element_tag(el.tag.as_str()) == "template" {
+            continue;
+        }
 
         if el.tag == "script" && script_tag_is_executable(el) {
             if let Some(src) = attr(el, "src").and_then(|value| resolve_link(base_url, value)) {
@@ -2979,7 +3214,12 @@ fn collect_subresources_from_nodes(
             continue;
         };
 
-        match el.tag.as_str() {
+        if canonical_element_tag(el.tag.as_str()) == "template" {
+            continue;
+        }
+
+        let tag = canonical_element_tag(el.tag.as_str());
+        match tag {
             "img" => {
                 if let Some(src) =
                     image_source_attr(el).and_then(|value| resolve_link(base_url, value))
@@ -3875,7 +4115,9 @@ fn matches_selector(sel: &Selector, el: &HtmlElement, ancestors: &[SelectorSubje
 
 fn matches_simple_selector_element(simple: &SimpleSelector, el: &HtmlElement) -> bool {
     if let Some(tag) = &simple.tag {
-        if &el.tag != tag {
+        let expected = canonical_element_tag(tag);
+        let actual = canonical_element_tag(el.tag.as_str());
+        if actual != expected {
             return false;
         }
     }
@@ -3911,7 +4153,9 @@ fn matches_simple_selector_element(simple: &SimpleSelector, el: &HtmlElement) ->
 
 fn matches_simple_selector_subject(simple: &SimpleSelector, subject: &SelectorSubject) -> bool {
     if let Some(tag) = &simple.tag {
-        if &subject.tag != tag {
+        let expected = canonical_element_tag(tag);
+        let actual = canonical_element_tag(subject.tag.as_str());
+        if actual != expected {
             return false;
         }
     }
@@ -4923,7 +5167,7 @@ fn collect_text(nodes: &[HtmlNode]) -> String {
         match node {
             HtmlNode::Text(t) => out.push_str(t),
             HtmlNode::Element(el) => {
-                if matches!(el.tag.as_str(), "script" | "style" | "noscript") {
+                if is_non_rendered_element_tag(el.tag.as_str()) {
                     continue;
                 }
                 out.push_str(&collect_text(&el.children));
@@ -4949,10 +5193,7 @@ fn collect_renderable_text(
                 }
             }
             HtmlNode::Element(el) => {
-                if matches!(
-                    el.tag.as_str(),
-                    "script" | "style" | "head" | "title" | "noscript"
-                ) {
+                if is_non_rendered_element_tag(el.tag.as_str()) {
                     continue;
                 }
 
@@ -4979,7 +5220,7 @@ fn collect_static_fallback_text(nodes: &[HtmlNode], out: &mut String) {
                 }
             }
             HtmlNode::Element(el) => {
-                if matches!(el.tag.as_str(), "script" | "style" | "head" | "title") {
+                if is_static_fallback_ignored_tag(el.tag.as_str()) {
                     continue;
                 }
                 collect_static_fallback_text(&el.children, out);
@@ -5290,30 +5531,42 @@ fn is_name_char(b: u8) -> bool {
 }
 
 fn is_raw_text_tag(tag: &str) -> bool {
-    matches!(tag, "script" | "style")
+    matches!(
+        canonical_element_tag(tag),
+        "plaintext" | "script" | "style" | "textarea" | "title" | "xmp"
+    )
 }
 
 fn is_void(tag: &str) -> bool {
+    let tag = canonical_element_tag(tag);
     matches!(
         tag,
         "area"
             | "base"
+            | "basefont"
+            | "bgsound"
             | "br"
             | "col"
             | "embed"
+            | "frame"
             | "hr"
             | "img"
             | "input"
+            | "keygen"
             | "link"
+            | "menuitem"
             | "meta"
+            | "nextid"
             | "param"
             | "source"
+            | "spacer"
             | "track"
             | "wbr"
     )
 }
 
 fn is_block(tag: &str) -> bool {
+    let tag = canonical_element_tag(tag);
     matches!(
         tag,
         "html"
@@ -5326,15 +5579,21 @@ fn is_block(tag: &str) -> bool {
             | "nav"
             | "aside"
             | "address"
+            | "search"
             | "div"
             | "p"
             | "pre"
+            | "plaintext"
+            | "xmp"
             | "hr"
             | "form"
             | "fieldset"
             | "legend"
+            | "dialog"
             | "ul"
             | "ol"
+            | "menu"
+            | "dir"
             | "li"
             | "dl"
             | "dt"
@@ -5345,25 +5604,37 @@ fn is_block(tag: &str) -> bool {
             | "h4"
             | "h5"
             | "h6"
+            | "hgroup"
             | "figure"
             | "figcaption"
             | "details"
             | "summary"
             | "center"
+            | "marquee"
             | "table"
+            | "caption"
             | "thead"
             | "tbody"
+            | "tfoot"
             | "tr"
             | "td"
             | "th"
+            | "frameset"
+            | "noframes"
+            | "multicol"
             | "blockquote"
             | "video"
             | "audio"
             | "canvas"
             | "svg"
+            | "math"
             | "iframe"
+            | "fencedframe"
+            | "portal"
+            | "frame"
             | "embed"
             | "object"
+            | "applet"
             | "noscript"
     )
 }
@@ -5372,10 +5643,10 @@ fn is_block(tag: &str) -> bool {
 mod tests {
     use super::{
         AlignItems, Display, FlexDirection, FontFamilyChoice, HtmlDocument, HtmlElement, HtmlNode,
-        JustifyContent, ScriptDescriptor, ScriptPosition, StyleProps, StyleSheet, TextAlign,
-        collapse_whitespace, decode_entities, find_first_element, is_likely_screen_reader_only,
-        parse_color, parse_css_rules, parse_declarations, resolve_link, selector_subject,
-        style_for,
+        JustifyContent, MDN_REFERENCE_ELEMENTS, ScriptDescriptor, ScriptPosition, StyleProps,
+        StyleSheet, TextAlign, collapse_whitespace, decode_entities, find_first_element,
+        is_likely_screen_reader_only, is_mdn_reference_element, is_void, parse_color,
+        parse_css_rules, parse_declarations, resolve_link, selector_subject, style_for,
     };
     use eframe::egui::Color32;
 
@@ -5386,6 +5657,37 @@ mod tests {
         let doc = HtmlDocument::parse(src);
         assert_eq!(doc.title.as_deref(), Some("Hello"));
         assert!(!doc.root.children.is_empty());
+    }
+
+    #[test]
+    fn mdn_reference_registry_is_wired() {
+        for tag in MDN_REFERENCE_ELEMENTS {
+            assert!(
+                is_mdn_reference_element(tag),
+                "missing MDN element tag: {tag}"
+            );
+        }
+    }
+
+    #[test]
+    fn parses_all_mdn_reference_elements_without_crashing() {
+        for tag in MDN_REFERENCE_ELEMENTS {
+            if matches!(*tag, "html" | "head" | "body" | "title") {
+                continue;
+            }
+
+            let snippet = if is_void(tag) {
+                format!("<{tag}>")
+            } else {
+                format!("<{tag}>ok</{tag}>")
+            };
+            let html = format!("<html><body>{snippet}</body></html>");
+            let doc = HtmlDocument::parse(&html);
+            assert!(
+                !doc.root.children.is_empty(),
+                "parser failed to create DOM for tag <{tag}>"
+            );
+        }
     }
 
     #[test]
@@ -5410,6 +5712,13 @@ mod tests {
         let src = "<html><body><noscript>Enable JS</noscript></body></html>";
         let doc = HtmlDocument::parse(src);
         assert_eq!(doc.renderable_text_len(), 0);
+    }
+
+    #[test]
+    fn renderable_text_ignores_template_content() {
+        let src = "<html><body><template><p>Hidden</p></template><p>Shown</p></body></html>";
+        let doc = HtmlDocument::parse(src);
+        assert_eq!(doc.renderable_text_len(), "Shown".len());
     }
 
     #[test]
@@ -5611,6 +5920,17 @@ mod tests {
         assert_eq!(
             manifest.scripts,
             vec!["https://example.com/s.js".to_owned()]
+        );
+    }
+
+    #[test]
+    fn collects_legacy_image_alias_sources() {
+        let src = "<html><body><image src=\"/legacy.png\"></body></html>";
+        let doc = HtmlDocument::parse(src);
+        let manifest = doc.collect_subresources("https://example.com/base/index.html");
+        assert_eq!(
+            manifest.images,
+            vec!["https://example.com/legacy.png".to_owned()]
         );
     }
 

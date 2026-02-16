@@ -157,7 +157,7 @@ pub(super) fn execute_navigation(
                         }
 
                         script_sources.push(ScriptSource {
-                            origin: script.final_url,
+                            origin: format_script_origin(&script.final_url),
                             source,
                         });
                     }
@@ -264,8 +264,9 @@ pub(super) fn execute_navigation(
             }
 
             if js_execution.errors.len() < MAX_JS_ERROR_LOGS {
-                js_execution.errors.push(format!(
-                    "js redirect limit reached while navigating to {next_url}"
+                js_execution.errors.push(format_js_error(
+                    "runtime",
+                    &format!("js redirect limit reached while navigating to {next_url}"),
                 ));
             }
         }
@@ -569,6 +570,9 @@ fn allow_subresource_request(
     let Ok(candidate) = Url::parse(candidate_url) else {
         return false;
     };
+    if !matches!(candidate.scheme(), "http" | "https") {
+        return false;
+    }
 
     let Some(host) = candidate.host_str() else {
         return false;
@@ -582,7 +586,23 @@ fn allow_subresource_request(
         return true;
     }
 
-    same_origin(document_url, candidate_url)
+    if same_origin(document_url, candidate_url) {
+        return true;
+    }
+
+    // Keep downgrade protections while allowing cross-origin HTTPS subresources
+    // (required by modern pages that split assets across dedicated hosts/CDNs).
+    let Ok(document) = Url::parse(document_url) else {
+        return false;
+    };
+    if !matches!(document.scheme(), "http" | "https") {
+        return false;
+    }
+    if document.scheme() == "https" && candidate.scheme() != "https" {
+        return false;
+    }
+
+    true
 }
 
 fn same_origin(left: &str, right: &str) -> bool {
@@ -619,11 +639,55 @@ fn is_javascript_content_type(content_type: &str, final_url: &str) -> bool {
     url_lower.contains(".js") || url_lower.contains(".mjs")
 }
 
+fn format_script_origin(input: &str) -> String {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return "script".to_owned();
+    }
+
+    if let Ok(mut url) = Url::parse(trimmed) {
+        url.set_query(None);
+        url.set_fragment(None);
+        return clamp_log_text(&url.to_string(), MAX_JS_ERROR_ORIGIN_CHARS);
+    }
+
+    clamp_log_text(trimmed, MAX_JS_ERROR_ORIGIN_CHARS)
+}
+
+fn format_js_error(origin: &str, message: &str) -> String {
+    let clean_origin = format_script_origin(origin);
+    let clean_message = normalize_log_whitespace(message);
+    let clean_message = clamp_log_text(&clean_message, MAX_JS_ERROR_MESSAGE_CHARS);
+    format!("{clean_origin}: {clean_message}")
+}
+
+fn normalize_log_whitespace(input: &str) -> String {
+    input
+        .split_whitespace()
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn clamp_log_text(input: &str, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return String::new();
+    }
+
+    if input.chars().count() <= max_chars {
+        return input.to_owned();
+    }
+
+    let mut clipped = input.chars().take(max_chars).collect::<String>();
+    clipped.push_str("...");
+    clipped
+}
+
 fn js_stats_from_report(enabled: bool, report: JsExecutionReport) -> JsExecutionStats {
     let errors = report
         .errors
         .into_iter()
-        .map(|error| format!("{}: {}", error.origin, error.message))
+        .map(|error| format_js_error(&error.origin, &error.message))
         .collect::<Vec<_>>();
 
     JsExecutionStats {
@@ -652,15 +716,20 @@ pub(super) fn dispatch_dom_events(
         if event.inline_handler.len() > MAX_INLINE_EVENT_HANDLER_BYTES {
             page.js_execution.event_failures = page.js_execution.event_failures.saturating_add(1);
             if page.js_execution.errors.len() < MAX_JS_ERROR_LOGS {
-                page.js_execution.errors.push(format!(
-                    "dom-event:{}:{}: inline handler too large ({} bytes)",
-                    match event.kind {
-                        simple_html::DomEventKind::Click => "click",
-                        simple_html::DomEventKind::Input => "input",
-                        simple_html::DomEventKind::Submit => "submit",
-                    },
-                    index + 1,
-                    event.inline_handler.len()
+                page.js_execution.errors.push(format_js_error(
+                    &format!(
+                        "dom-event:{}:{}",
+                        match event.kind {
+                            simple_html::DomEventKind::Click => "click",
+                            simple_html::DomEventKind::Input => "input",
+                            simple_html::DomEventKind::Submit => "submit",
+                        },
+                        index + 1
+                    ),
+                    &format!(
+                        "inline handler too large ({} bytes)",
+                        event.inline_handler.len()
+                    ),
                 ));
             }
             continue;
@@ -716,7 +785,7 @@ pub(super) fn dispatch_dom_events(
         }
         page.js_execution
             .errors
-            .push(format!("{}: {}", error.origin, error.message));
+            .push(format_js_error(&error.origin, &error.message));
     }
 
     if let Some(new_title) = output
