@@ -73,9 +73,26 @@ fn install_platform_fonts(ctx: &egui::Context) {
     {
         let candidates = [
             ("segoe_ui", r"C:\Windows\Fonts\segoeui.ttf"),
+            ("segoe_ui_italic", r"C:\Windows\Fonts\segoeuii.ttf"),
+            ("segoe_ui_bold", r"C:\Windows\Fonts\segoeuib.ttf"),
+            ("segoe_ui_bold_italic", r"C:\Windows\Fonts\segoeuiz.ttf"),
+            ("segoe_ui_semibold", r"C:\Windows\Fonts\seguisb.ttf"),
             ("tahoma", r"C:\Windows\Fonts\tahoma.ttf"),
             ("arial", r"C:\Windows\Fonts\arial.ttf"),
+            ("arial_italic", r"C:\Windows\Fonts\ariali.ttf"),
+            ("arial_bold", r"C:\Windows\Fonts\arialbd.ttf"),
+            ("arial_bold_italic", r"C:\Windows\Fonts\arialbi.ttf"),
+            ("calibri", r"C:\Windows\Fonts\calibri.ttf"),
+            ("calibri_italic", r"C:\Windows\Fonts\calibrii.ttf"),
+            ("calibri_bold", r"C:\Windows\Fonts\calibrib.ttf"),
+            ("calibri_bold_italic", r"C:\Windows\Fonts\calibriz.ttf"),
+            ("times_new_roman", r"C:\Windows\Fonts\times.ttf"),
+            ("times_new_roman_italic", r"C:\Windows\Fonts\timesi.ttf"),
+            ("times_new_roman_bold", r"C:\Windows\Fonts\timesbd.ttf"),
+            ("times_new_roman_bold_italic", r"C:\Windows\Fonts\timesbi.ttf"),
+            ("consolas", r"C:\Windows\Fonts\consola.ttf"),
             ("segoe_ui_symbol", r"C:\Windows\Fonts\seguisym.ttf"),
+            ("segoe_ui_emoji", r"C:\Windows\Fonts\seguiemj.ttf"),
         ];
 
         let mut inserted = Vec::new();
@@ -89,13 +106,96 @@ fn install_platform_fonts(ctx: &egui::Context) {
         }
 
         if !inserted.is_empty() {
+            let has = |name: &str| inserted.iter().any(|item| item == name);
+            let mut regular = Vec::new();
+            for name in ["segoe_ui", "calibri", "arial", "tahoma", "times_new_roman"] {
+                if has(name) {
+                    regular.push(name.to_owned());
+                }
+            }
+            for name in ["segoe_ui_symbol", "segoe_ui_emoji"] {
+                if has(name) {
+                    regular.push(name.to_owned());
+                }
+            }
+            if regular.is_empty() {
+                regular.extend(inserted.iter().cloned());
+            }
+
+            let mut bold = Vec::new();
+            for name in [
+                "segoe_ui_bold",
+                "segoe_ui_semibold",
+                "calibri_bold",
+                "arial_bold",
+                "times_new_roman_bold",
+            ] {
+                if has(name) {
+                    bold.push(name.to_owned());
+                }
+            }
+            bold.extend(regular.iter().cloned());
+
+            let mut italic = Vec::new();
+            for name in [
+                "segoe_ui_italic",
+                "calibri_italic",
+                "arial_italic",
+                "times_new_roman_italic",
+            ] {
+                if has(name) {
+                    italic.push(name.to_owned());
+                }
+            }
+            italic.extend(regular.iter().cloned());
+
+            let mut bold_italic = Vec::new();
+            for name in [
+                "segoe_ui_bold_italic",
+                "calibri_bold_italic",
+                "arial_bold_italic",
+                "times_new_roman_bold_italic",
+            ] {
+                if has(name) {
+                    bold_italic.push(name.to_owned());
+                }
+            }
+            bold_italic.extend(bold.iter().cloned());
+            bold_italic.extend(italic.iter().cloned());
+
+            let mut mono = Vec::new();
+            if has("consolas") {
+                mono.push("consolas".to_owned());
+            }
+            mono.extend(regular.iter().cloned());
+
+            fonts.families.insert(
+                egui::FontFamily::Name("pd-proportional".into()),
+                regular.clone(),
+            );
+            fonts.families.insert(
+                egui::FontFamily::Name("pd-proportional-bold".into()),
+                bold.clone(),
+            );
+            fonts.families.insert(
+                egui::FontFamily::Name("pd-proportional-italic".into()),
+                italic.clone(),
+            );
+            fonts.families.insert(
+                egui::FontFamily::Name("pd-proportional-bold-italic".into()),
+                bold_italic,
+            );
+            fonts
+                .families
+                .insert(egui::FontFamily::Name("pd-monospace".into()), mono.clone());
+
             if let Some(proportional) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
-                for name in inserted.iter().rev() {
+                for name in regular.iter().rev() {
                     proportional.insert(0, name.clone());
                 }
             }
             if let Some(monospace) = fonts.families.get_mut(&egui::FontFamily::Monospace) {
-                for name in inserted {
+                for name in mono {
                     monospace.push(name);
                 }
             }

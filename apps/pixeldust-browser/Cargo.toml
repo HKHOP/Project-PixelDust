@@ -13,7 +13,7 @@ workspace = true
 [dependencies]
 encoding_rs = "0.8.35"
 eframe = { version = "0.31.1", default-features = false, features = ["default_fonts", "glow"] }
-image = { version = "0.25.9", default-features = false, features = ["jpeg", "png", "webp"] }
+image = { version = "0.25.9", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
 pd-browser.workspace = true
 pd-ipc.workspace = true
 pd-js.workspace = true

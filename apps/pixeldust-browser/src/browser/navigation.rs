@@ -1271,16 +1271,50 @@ fn decode_image_asset(url: &str, content_type: &str, body: &[u8]) -> Option<Deco
         }
     }
 
+    let sniffed_format = image::guess_format(body).ok();
+    let sniffed_supported = matches!(
+        sniffed_format,
+        Some(
+            image::ImageFormat::Png
+                | image::ImageFormat::Jpeg
+                | image::ImageFormat::Gif
+                | image::ImageFormat::WebP
+        )
+    );
+
     if !(content_type.starts_with("image/")
         || lower_url.ends_with(".png")
         || lower_url.ends_with(".jpg")
         || lower_url.ends_with(".jpeg")
-        || lower_url.ends_with(".webp"))
+        || lower_url.ends_with(".gif")
+        || lower_url.ends_with(".webp")
+        || sniffed_supported)
     {
         return None;
     }
 
-    let decoded = image::load_from_memory(body).ok()?;
+    let decode_with_limits = |format: Option<image::ImageFormat>| -> Option<image::DynamicImage> {
+        let mut reader = image::ImageReader::new(std::io::Cursor::new(body));
+        if let Some(format) = format {
+            reader.set_format(format);
+        } else {
+            reader = reader.with_guessed_format().ok()?;
+        }
+
+        // Prevent pathological image payloads from requesting huge allocations.
+        let mut limits = image::Limits::default();
+        limits.max_image_width = Some(8_192);
+        limits.max_image_height = Some(8_192);
+        limits.max_alloc = Some((MAX_IMAGE_PIXELS.saturating_mul(4)) as u64);
+        reader.limits(limits);
+        reader.decode().ok()
+    };
+
+    let decoded = if let Some(format) = sniffed_format {
+        decode_with_limits(Some(format)).or_else(|| decode_with_limits(None))?
+    } else {
+        decode_with_limits(None)?
+    };
     let (width, height) = decoded.dimensions();
     let width_usize = usize::try_from(width).ok()?;
     let height_usize = usize::try_from(height).ok()?;

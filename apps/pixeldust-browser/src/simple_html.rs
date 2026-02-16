@@ -147,6 +147,7 @@ enum Display {
     Block,
     Inline,
     Flex,
+    Grid,
     None,
 }
 
@@ -172,6 +173,40 @@ enum AlignItems {
     Center,
     End,
     Stretch,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AlignContent {
+    Start,
+    Center,
+    End,
+    SpaceBetween,
+    SpaceAround,
+    SpaceEvenly,
+    Stretch,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FlexWrap {
+    NoWrap,
+    Wrap,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PositionMode {
+    Static,
+    Relative,
+    Absolute,
+    Fixed,
+    Sticky,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OverflowMode {
+    Visible,
+    Hidden,
+    Auto,
+    Scroll,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -702,11 +737,22 @@ struct StyleProps {
     script: Option<ScriptPosition>,
     line_height: Option<f32>,
     flex_direction: Option<FlexDirection>,
+    flex_wrap: Option<FlexWrap>,
     justify_content: Option<JustifyContent>,
     align_items: Option<AlignItems>,
+    align_content: Option<AlignContent>,
     gap: Option<f32>,
     text_transform: Option<TextTransform>,
     white_space: Option<WhiteSpaceMode>,
+    list_style_type: Option<String>,
+    position: Option<PositionMode>,
+    inset_top: Option<f32>,
+    inset_right: Option<f32>,
+    inset_bottom: Option<f32>,
+    inset_left: Option<f32>,
+    z_index: Option<i32>,
+    overflow_x: Option<OverflowMode>,
+    overflow_y: Option<OverflowMode>,
     width: Option<f32>,
     width_percent: Option<f32>,
     min_width: Option<f32>,
@@ -739,11 +785,22 @@ impl StyleProps {
             && self.script.is_none()
             && self.line_height.is_none()
             && self.flex_direction.is_none()
+            && self.flex_wrap.is_none()
             && self.justify_content.is_none()
             && self.align_items.is_none()
+            && self.align_content.is_none()
             && self.gap.is_none()
             && self.text_transform.is_none()
             && self.white_space.is_none()
+            && self.list_style_type.is_none()
+            && self.position.is_none()
+            && self.inset_top.is_none()
+            && self.inset_right.is_none()
+            && self.inset_bottom.is_none()
+            && self.inset_left.is_none()
+            && self.z_index.is_none()
+            && self.overflow_x.is_none()
+            && self.overflow_y.is_none()
             && self.width.is_none()
             && self.width_percent.is_none()
             && self.min_width.is_none()
@@ -801,11 +858,22 @@ struct StylePriority {
     script: Option<CascadePriority>,
     line_height: Option<CascadePriority>,
     flex_direction: Option<CascadePriority>,
+    flex_wrap: Option<CascadePriority>,
     justify_content: Option<CascadePriority>,
     align_items: Option<CascadePriority>,
+    align_content: Option<CascadePriority>,
     gap: Option<CascadePriority>,
     text_transform: Option<CascadePriority>,
     white_space: Option<CascadePriority>,
+    list_style_type: Option<CascadePriority>,
+    position: Option<CascadePriority>,
+    inset_top: Option<CascadePriority>,
+    inset_right: Option<CascadePriority>,
+    inset_bottom: Option<CascadePriority>,
+    inset_left: Option<CascadePriority>,
+    z_index: Option<CascadePriority>,
+    overflow_x: Option<CascadePriority>,
+    overflow_y: Option<CascadePriority>,
     width: Option<CascadePriority>,
     width_percent: Option<CascadePriority>,
     min_width: Option<CascadePriority>,
@@ -909,6 +977,7 @@ impl HtmlDocument {
         out
     }
 
+    #[cfg(test)]
     pub fn visible_text_len(&self) -> usize {
         let text = if let Some(body) = find_first_element(&self.root.children, "body") {
             collect_text(&body.children)
@@ -967,6 +1036,10 @@ pub fn render_document(
     action: &mut RenderAction,
     form_state: &mut HashMap<String, String>,
 ) {
+    // Match browser defaults regardless of host app theme.
+    ui.painter()
+        .rect_filled(ui.max_rect(), 0.0, egui::Color32::WHITE);
+
     let mut ctx = Ctx {
         base_url,
         styles: &doc.styles,
@@ -977,9 +1050,15 @@ pub fn render_document(
         form_fields: HashMap::new(),
         ancestor_stack: Vec::new(),
     };
-    let inherited = StyleProps::default();
+    let inherited = StyleProps {
+        color: Some(egui::Color32::BLACK),
+        ..StyleProps::default()
+    };
     if let Some(body) = find_first_element(&doc.root.children, "body") {
-        let body_style = style_for(body, ctx.styles, &inherited, &ctx.ancestor_stack);
+        let mut body_style = style_for(body, ctx.styles, &inherited, &ctx.ancestor_stack);
+        if body_style.bg.is_none() {
+            body_style.bg = Some(egui::Color32::WHITE);
+        }
         if !matches!(body_style.display, Some(Display::None)) {
             render_box(ui, &body_style, |ui| {
                 ctx.ancestor_stack.push(selector_subject(body));
@@ -990,9 +1069,16 @@ pub fn render_document(
             });
         }
     } else {
-        for node in &doc.root.children {
-            render_node(ui, node, &mut ctx, &inherited);
-        }
+        let root_style = StyleProps {
+            bg: Some(egui::Color32::WHITE),
+            color: Some(egui::Color32::BLACK),
+            ..StyleProps::default()
+        };
+        render_box(ui, &root_style, |ui| {
+            for node in &doc.root.children {
+                render_node(ui, node, &mut ctx, &inherited);
+            }
+        });
     }
 }
 
@@ -1013,7 +1099,8 @@ fn render_element(ui: &mut egui::Ui, el: &HtmlElement, ctx: &mut Ctx<'_>, inheri
         return;
     }
 
-    let style = style_for(el, ctx.styles, inherited, &ctx.ancestor_stack);
+    let mut style = style_for(el, ctx.styles, inherited, &ctx.ancestor_stack);
+    apply_semantic_text_style(tag, &mut style);
     if style_suppresses_rendering(&style) || is_likely_screen_reader_only(&style) {
         return;
     }
@@ -1029,7 +1116,14 @@ fn render_element(ui: &mut egui::Ui, el: &HtmlElement, ctx: &mut Ctx<'_>, inheri
         "hr" => render_horizontal_rule(ui, &style),
         "p" => {
             render_box(ui, &style, |ui| {
-                render_inline_wrapped(ui, &el.children, ctx, &style);
+                if element_has_only_text_children(&el.children) {
+                    let text = collect_text(&el.children);
+                    if !text.trim().is_empty() {
+                        render_text_block(ui, &text, &style, TextEffects::default());
+                    }
+                } else {
+                    render_inline_wrapped(ui, &el.children, ctx, &style);
+                }
             });
             add_default_bottom_spacing(ui, &style, 4.0);
         }
@@ -1083,15 +1177,19 @@ fn render_element(ui: &mut egui::Ui, el: &HtmlElement, ctx: &mut Ctx<'_>, inheri
         | "frame" | "embed" | "object" | "applet" => render_embedded_content(ui, el, ctx, &style),
         "plaintext" | "xmp" => render_pre(ui, el, &style),
         "a" => {
-            render_box(ui, &style, |ui| {
-                if is_rtl_layout(&style) {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-                        render_link(ui, el, ctx, &style);
-                    });
-                } else {
-                    ui.horizontal_wrapped(|ui| render_link(ui, el, ctx, &style));
-                }
-            });
+            if anchor_has_element_children(el) {
+                render_anchor_container(ui, el, ctx, &style);
+            } else {
+                render_box(ui, &style, |ui| {
+                    if is_rtl_layout(&style) {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+                            render_link(ui, el, ctx, &style);
+                        });
+                    } else {
+                        ui.horizontal_wrapped(|ui| render_link(ui, el, ctx, &style));
+                    }
+                });
+            }
             add_default_bottom_spacing(ui, &style, 2.0);
         }
         _ => {
@@ -1115,6 +1213,10 @@ fn render_element(ui: &mut egui::Ui, el: &HtmlElement, ctx: &mut Ctx<'_>, inheri
                     render_flex(ui, el, ctx, &style);
                     add_default_bottom_spacing(ui, &style, 2.0);
                 }
+                Display::Grid => {
+                    render_grid(ui, el, ctx, &style);
+                    add_default_bottom_spacing(ui, &style, 2.0);
+                }
                 Display::Inline => {
                     ui.horizontal_wrapped(|ui| render_inline(ui, &el.children, ctx, &style));
                 }
@@ -1123,6 +1225,32 @@ fn render_element(ui: &mut egui::Ui, el: &HtmlElement, ctx: &mut Ctx<'_>, inheri
         }
     }
     ctx.ancestor_stack.pop();
+}
+
+fn apply_semantic_text_style(tag: &str, style: &mut StyleProps) {
+    match tag {
+        "strong" | "b" => {
+            if style.bold.is_none() {
+                style.bold = Some(true);
+            }
+        }
+        "em" | "i" | "cite" => {
+            if style.italic.is_none() {
+                style.italic = Some(true);
+            }
+        }
+        "u" | "ins" => {
+            if style.underline.is_none() {
+                style.underline = Some(true);
+            }
+        }
+        "s" | "strike" | "del" => {
+            if style.strike.is_none() {
+                style.strike = Some(true);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn render_inline(ui: &mut egui::Ui, nodes: &[HtmlNode], ctx: &mut Ctx<'_>, inherited: &StyleProps) {
@@ -1292,7 +1420,13 @@ fn render_inline(ui: &mut egui::Ui, nodes: &[HtmlNode], ctx: &mut Ctx<'_>, inher
                     "br" => {
                         ui.label("");
                     }
-                    "a" => render_link(ui, el, ctx, &style),
+                    "a" => {
+                        if anchor_has_element_children(el) {
+                            render_element(ui, el, ctx, inherited);
+                        } else {
+                            render_link(ui, el, ctx, &style);
+                        }
+                    }
                     "img" => render_img(ui, el, ctx, &style),
                     "input" => render_input(ui, el, ctx, &style, true),
                     "keygen" => render_input(ui, el, ctx, &style, true),
@@ -1308,7 +1442,7 @@ fn render_inline(ui: &mut egui::Ui, nodes: &[HtmlNode], ctx: &mut Ctx<'_>, inher
                                 Display::Inline
                             }
                         });
-                        if matches!(display, Display::Block | Display::Flex) {
+                        if matches!(display, Display::Block | Display::Flex | Display::Grid) {
                             render_element(ui, el, ctx, inherited);
                         } else {
                             ctx.ancestor_stack.push(selector_subject(el));
@@ -1373,6 +1507,47 @@ fn render_link(ui: &mut egui::Ui, el: &HtmlElement, ctx: &mut Ctx<'_>, style: &S
     render_text(ui, &text, style, TextEffects::default());
 }
 
+fn anchor_has_element_children(el: &HtmlElement) -> bool {
+    el.children
+        .iter()
+        .any(|node| matches!(node, HtmlNode::Element(_)))
+}
+
+fn render_anchor_container(
+    ui: &mut egui::Ui,
+    el: &HtmlElement,
+    ctx: &mut Ctx<'_>,
+    style: &StyleProps,
+) {
+    let href = attr(el, "href").and_then(|value| resolve_link(ctx.base_url, value));
+    let disabled = has_attr(el, "disabled") || has_attr(el, "inert");
+    let mut container_style = style.clone();
+    if matches!(container_style.display, None | Some(Display::Inline)) {
+        // Grid/flex items are blockified by CSS layout.
+        container_style.display = Some(Display::Block);
+    }
+
+    render_box(ui, &container_style, |ui| {
+        let id = ui.next_auto_id();
+        let inner = ui.scope(|ui| {
+            for child in &el.children {
+                render_node(ui, child, ctx, &container_style);
+            }
+        });
+
+        if !disabled && let Some(url) = href.as_ref() {
+            let response = ui.interact(inner.response.rect, id, egui::Sense::click());
+            if response.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            if response.clicked() {
+                emit_inline_event(ctx, DomEventKind::Click, el, "onclick");
+                ctx.action.navigate_to = Some(url.clone());
+            }
+        }
+    });
+}
+
 fn render_heading(ui: &mut egui::Ui, el: &HtmlElement, style: &StyleProps, default_size: f32) {
     let text = collapse_whitespace(&collect_text(&el.children));
     if text.is_empty() {
@@ -1387,7 +1562,7 @@ fn render_heading(ui: &mut egui::Ui, el: &HtmlElement, style: &StyleProps, defau
     }
 
     render_box(ui, style, |ui| {
-        ui.label(rich);
+        add_aligned_label(ui, egui::Label::new(rich), style);
     });
     add_default_bottom_spacing(ui, style, 4.0);
 }
@@ -1911,36 +2086,62 @@ fn render_list(
     } else {
         1
     };
-    let marker_kind = attr(el, "type")
+    let marker_kind = style
+        .list_style_type
+        .clone()
+        .or_else(|| {
+            attr(el, "type")
+                .map(|value| value.trim().to_owned())
+                .filter(|value| !value.is_empty())
+        })
         .map(|value| value.trim().to_owned())
         .filter(|value| !value.is_empty());
 
+    let mut items: Vec<(&HtmlElement, StyleProps)> = Vec::new();
+    for child in &el.children {
+        let HtmlNode::Element(item) = child else {
+            continue;
+        };
+        if item.tag != "li" {
+            continue;
+        }
+        let item_style = style_for(item, ctx.styles, style, &ctx.ancestor_stack);
+        if matches!(item_style.display, Some(Display::None)) {
+            continue;
+        }
+        items.push((item, item_style));
+    }
+
     if numbered && reversed && !has_attr(el, "start") {
-        let list_len = el
-            .children
-            .iter()
-            .filter_map(|node| match node {
-                HtmlNode::Element(item) if item.tag == "li" => Some(item),
-                _ => None,
-            })
-            .count();
+        let list_len = items.len();
         index = list_len.max(1);
     }
 
+    let is_unordered_none = !numbered
+        && marker_kind
+            .as_deref()
+            .is_some_and(|kind| kind.eq_ignore_ascii_case("none"));
+    let has_inline_items = items
+        .iter()
+        .any(|(_, item_style)| matches!(item_style.display, Some(Display::Inline)));
+    if is_unordered_none && has_inline_items {
+        render_box(ui, style, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                for (item, item_style) in &items {
+                    ctx.ancestor_stack.push(selector_subject(item));
+                    render_box(ui, item_style, |ui| {
+                        render_inline(ui, &item.children, ctx, item_style);
+                    });
+                    ctx.ancestor_stack.pop();
+                }
+            });
+        });
+        add_default_bottom_spacing(ui, style, 4.0);
+        return;
+    }
+
     render_box(ui, style, |ui| {
-        for child in &el.children {
-            let HtmlNode::Element(item) = child else {
-                continue;
-            };
-            if item.tag != "li" {
-                continue;
-            }
-
-            let item_style = style_for(item, ctx.styles, style, &ctx.ancestor_stack);
-            if matches!(item_style.display, Some(Display::None)) {
-                continue;
-            }
-
+        for (item, item_style) in &items {
             ui.horizontal_wrapped(|ui| {
                 let mark = if numbered {
                     ordered_list_marker(index, marker_kind.as_deref())
@@ -1950,9 +2151,13 @@ fn render_list(
                 ctx.ancestor_stack.push(selector_subject(item));
                 if is_rtl_layout(&item_style) {
                     render_inline(ui, &item.children, ctx, &item_style);
-                    ui.label(mark);
+                    if !mark.is_empty() {
+                        ui.label(mark);
+                    }
                 } else {
-                    ui.label(mark);
+                    if !mark.is_empty() {
+                        ui.label(mark);
+                    }
                     render_inline(ui, &item.children, ctx, &item_style);
                 }
                 ctx.ancestor_stack.pop();
@@ -1975,10 +2180,11 @@ fn ordered_list_marker(index: usize, marker_type: Option<&str>) -> String {
         .unwrap_or("1");
 
     match marker {
-        "a" => format!("{}.", alpha_list_marker(index, false)),
-        "A" => format!("{}.", alpha_list_marker(index, true)),
-        "i" => format!("{}.", roman_list_marker(index, false)),
-        "I" => format!("{}.", roman_list_marker(index, true)),
+        "a" | "lower-alpha" => format!("{}.", alpha_list_marker(index, false)),
+        "A" | "upper-alpha" => format!("{}.", alpha_list_marker(index, true)),
+        "i" | "lower-roman" => format!("{}.", roman_list_marker(index, false)),
+        "I" | "upper-roman" => format!("{}.", roman_list_marker(index, true)),
+        "none" => String::new(),
         _ => format!("{}.", index),
     }
 }
@@ -2173,10 +2379,41 @@ fn render_text(ui: &mut egui::Ui, text: &str, style: &StyleProps, effects: TextE
             egui::TextWrapMode::Wrap
         }
     };
-    ui.add(
-        egui::Label::new(build_rich_text(text.to_owned(), style, effects))
-            .wrap_mode(wrap_mode),
+    let label = egui::Label::new(build_rich_text(text.to_owned(), style, effects)).wrap_mode(wrap_mode);
+    ui.add(label);
+}
+
+fn render_text_block(ui: &mut egui::Ui, text: &str, style: &StyleProps, effects: TextEffects) {
+    let wrap_mode = match effective_white_space_mode(style, &effects) {
+        WhiteSpaceMode::NoWrap | WhiteSpaceMode::Pre => egui::TextWrapMode::Extend,
+        WhiteSpaceMode::Normal | WhiteSpaceMode::PreWrap | WhiteSpaceMode::PreLine => {
+            egui::TextWrapMode::Wrap
+        }
+    };
+    let label = egui::Label::new(build_rich_text(text.to_owned(), style, effects)).wrap_mode(wrap_mode);
+    add_aligned_label(ui, label, style);
+}
+
+fn add_aligned_label(ui: &mut egui::Ui, label: egui::Label, style: &StyleProps) {
+    let horizontal_align = match style.text_align.unwrap_or(TextAlign::Left) {
+        TextAlign::Left | TextAlign::Justify => egui::Align::Min,
+        TextAlign::Center => egui::Align::Center,
+        TextAlign::Right => egui::Align::Max,
+    };
+    ui.allocate_ui_with_layout(
+        egui::vec2(ui.available_width().max(1.0), 0.0),
+        egui::Layout::top_down(horizontal_align),
+        |ui| {
+            ui.add(label);
+        },
     );
+}
+
+fn element_has_only_text_children(children: &[HtmlNode]) -> bool {
+    children.iter().all(|node| match node {
+        HtmlNode::Text(_) => true,
+        HtmlNode::Element(el) => canonical_element_tag(el.tag.as_str()) == "br",
+    })
 }
 
 fn render_inline_wrapped(
@@ -2833,10 +3070,9 @@ fn build_rich_text(input: String, style: &StyleProps, effects: TextEffects) -> e
     if let Some(v) = style.color {
         rich = rich.color(color_with_effective_opacity(v, style));
     }
-    if effects.strong || style.bold.unwrap_or(false) {
-        rich = rich.strong();
-    }
-    if effects.italics || style.italic.unwrap_or(false) {
+    let wants_bold = effects.strong || style.bold.unwrap_or(false);
+    let wants_italic = effects.italics || style.italic.unwrap_or(false);
+    if wants_italic {
         rich = rich.italics();
     }
     if effects.underline || style.underline.unwrap_or(false) {
@@ -2845,14 +3081,7 @@ fn build_rich_text(input: String, style: &StyleProps, effects: TextEffects) -> e
     if effects.strike || style.strike.unwrap_or(false) {
         rich = rich.strikethrough();
     }
-    if effects.mono {
-        rich = rich.monospace();
-    } else if let Some(family) = style.font_family {
-        rich = rich.family(match family {
-            FontFamilyChoice::Proportional => egui::FontFamily::Proportional,
-            FontFamilyChoice::Monospace => egui::FontFamily::Monospace,
-        });
-    }
+    rich = rich.family(select_text_font_family(style, effects, wants_bold, wants_italic));
     let mark_color = if effects.mark {
         style.bg.or(Some(egui::Color32::from_rgb(255, 241, 128)))
     } else {
@@ -2863,6 +3092,25 @@ fn build_rich_text(input: String, style: &StyleProps, effects: TextEffects) -> e
     }
 
     rich
+}
+
+fn select_text_font_family(
+    style: &StyleProps,
+    effects: TextEffects,
+    wants_bold: bool,
+    wants_italic: bool,
+) -> egui::FontFamily {
+    let prefers_mono = effects.mono || matches!(style.font_family, Some(FontFamilyChoice::Monospace));
+    if prefers_mono {
+        return egui::FontFamily::Name("pd-monospace".into());
+    }
+
+    match (wants_bold, wants_italic) {
+        (true, true) => egui::FontFamily::Name("pd-proportional-bold-italic".into()),
+        (true, false) => egui::FontFamily::Name("pd-proportional-bold".into()),
+        (false, true) => egui::FontFamily::Name("pd-proportional-italic".into()),
+        (false, false) => egui::FontFamily::Name("pd-proportional".into()),
+    }
 }
 
 fn normalize_text_for_render(input: &str, style: &StyleProps, effects: &TextEffects) -> String {
@@ -2920,7 +3168,12 @@ fn capitalize_words(input: &str) -> String {
 }
 
 fn effective_opacity(style: &StyleProps) -> f32 {
-    style.opacity.unwrap_or(1.0).clamp(0.0, 1.0)
+    let opacity = style.opacity.unwrap_or(1.0).clamp(0.0, 1.0);
+    if opacity <= 0.001 && has_animation_hint(style) {
+        1.0
+    } else {
+        opacity
+    }
 }
 
 fn color_with_effective_opacity(color: egui::Color32, style: &StyleProps) -> egui::Color32 {
@@ -2948,7 +3201,82 @@ fn is_likely_screen_reader_only(style: &StyleProps) -> bool {
 fn style_suppresses_rendering(style: &StyleProps) -> bool {
     matches!(style.display, Some(Display::None))
         || matches!(style.visibility_hidden, Some(true))
-        || style.opacity.is_some_and(|value| value <= 0.001)
+        || effective_opacity(style) <= 0.001
+}
+
+fn has_animation_hint(style: &StyleProps) -> bool {
+    let animation = style
+        .raw_css
+        .get("animation")
+        .or_else(|| style.raw_css.get("animation-name"))
+        .map(|value| value.trim().to_ascii_lowercase());
+    match animation.as_deref() {
+        Some("none") | Some("") => false,
+        Some(_) => true,
+        None => false,
+    }
+}
+
+fn position_offset(style: &StyleProps) -> (f32, f32) {
+    let horizontal = style
+        .inset_left
+        .or(style.inset_right.map(|value| -value))
+        .unwrap_or(0.0);
+    let vertical = style
+        .inset_top
+        .or(style.inset_bottom.map(|value| -value))
+        .unwrap_or(0.0);
+    (horizontal, vertical)
+}
+
+fn overflow_mode_x(style: &StyleProps) -> OverflowMode {
+    style.overflow_x.unwrap_or(OverflowMode::Visible)
+}
+
+fn overflow_mode_y(style: &StyleProps) -> OverflowMode {
+    style.overflow_y.unwrap_or(OverflowMode::Visible)
+}
+
+fn with_overflow_behavior(
+    ui: &mut egui::Ui,
+    style: &StyleProps,
+    body: impl FnOnce(&mut egui::Ui),
+) {
+    let overflow_x = overflow_mode_x(style);
+    let overflow_y = overflow_mode_y(style);
+    let scroll_x = matches!(overflow_x, OverflowMode::Auto | OverflowMode::Scroll);
+    let scroll_y = matches!(overflow_y, OverflowMode::Auto | OverflowMode::Scroll);
+    let hidden_clip = matches!(overflow_x, OverflowMode::Hidden)
+        || matches!(overflow_y, OverflowMode::Hidden);
+
+    if scroll_x || scroll_y {
+        let mut scroll_area = egui::ScrollArea::new([scroll_x, scroll_y]).auto_shrink([false, false]);
+        if matches!(overflow_x, OverflowMode::Scroll) || matches!(overflow_y, OverflowMode::Scroll)
+        {
+            scroll_area = scroll_area.scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible);
+        }
+        scroll_area.show(ui, body);
+        return;
+    }
+
+    if hidden_clip {
+        let clip_rect = ui.max_rect();
+        ui.scope(|ui| {
+            ui.shrink_clip_rect(clip_rect);
+            body(ui);
+        });
+        return;
+    }
+
+    body(ui);
+}
+
+fn z_layer_order(style: &StyleProps) -> Option<egui::Order> {
+    match style.z_index.unwrap_or(0).cmp(&0) {
+        std::cmp::Ordering::Less => Some(egui::Order::Background),
+        std::cmp::Ordering::Greater => Some(egui::Order::Foreground),
+        std::cmp::Ordering::Equal => None,
+    }
 }
 
 fn element_has_hidden_semantics(el: &HtmlElement) -> bool {
@@ -2959,7 +3287,7 @@ fn element_has_hidden_semantics(el: &HtmlElement) -> bool {
 }
 
 fn render_box(ui: &mut egui::Ui, style: &StyleProps, body: impl FnOnce(&mut egui::Ui)) {
-    let margin_top = style
+    let mut margin_top = style
         .margin
         .top
         .filter(|value| !value.is_infinite())
@@ -2999,24 +3327,30 @@ fn render_box(ui: &mut egui::Ui, style: &StyleProps, body: impl FnOnce(&mut egui
     );
     let border_radius = style.border_radius.unwrap_or(0.0).clamp(0.0, 255.0);
 
+    if !matches!(style.position.unwrap_or(PositionMode::Static), PositionMode::Static) {
+        let (offset_x, offset_y) = position_offset(style);
+        margin_left = (margin_left + offset_x).max(0.0);
+        margin_top = (margin_top + offset_y).max(0.0);
+    }
+
     if margin_top > 0.0 {
         ui.add_space(margin_top);
     }
 
     let viewport_width = ui.available_width().max(1.0);
     let inline_layout = matches!(style.display, Some(Display::Inline));
-    let specified_width = if inline_layout {
-        None
+    let specified_width = style.width.or_else(|| {
+        style
+            .width_percent
+            .map(|percent| viewport_width * (percent / 100.0))
+    });
+    let mut width = if inline_layout {
+        specified_width.unwrap_or(0.0).max(0.0)
     } else {
-        style.width.or_else(|| {
-            style
-                .width_percent
-                .map(|percent| viewport_width * (percent / 100.0))
-        })
+        specified_width
+            .unwrap_or((viewport_width - margin_left - margin_right).max(1.0))
+            .max(1.0)
     };
-    let mut width = specified_width
-        .unwrap_or((viewport_width - margin_left - margin_right).max(1.0))
-        .max(1.0);
     if !inline_layout && let Some(min_width) = style.min_width {
         width = width.max(min_width.max(0.0));
     }
@@ -3024,7 +3358,16 @@ fn render_box(ui: &mut egui::Ui, style: &StyleProps, body: impl FnOnce(&mut egui
         width = width.min(max_width.max(1.0));
     }
 
-    if specified_width.is_some() && (margin_left_auto || margin_right_auto) {
+    if !inline_layout && specified_width.is_none() {
+        width = (viewport_width - margin_left - margin_right).max(1.0);
+        if let Some(min_width) = style.min_width {
+            width = width.max(min_width.max(0.0));
+        }
+        if let Some(max_width) = style.max_width {
+            width = width.min(max_width.max(1.0));
+        }
+    }
+    if (margin_left_auto || margin_right_auto) && (!inline_layout || width > 0.0) {
         let remaining = (viewport_width - width - margin_left - margin_right).max(0.0);
         match (margin_left_auto, margin_right_auto) {
             (true, true) => {
@@ -3035,15 +3378,6 @@ fn render_box(ui: &mut egui::Ui, style: &StyleProps, body: impl FnOnce(&mut egui
             (true, false) => margin_left = remaining,
             (false, true) => margin_right = remaining,
             (false, false) => {}
-        }
-    }
-    if specified_width.is_none() {
-        width = (viewport_width - margin_left - margin_right).max(1.0);
-        if !inline_layout && let Some(min_width) = style.min_width {
-            width = width.max(min_width.max(0.0));
-        }
-        if !inline_layout && let Some(max_width) = style.max_width {
-            width = width.min(max_width.max(1.0));
         }
     }
 
@@ -3068,6 +3402,48 @@ fn render_box(ui: &mut egui::Ui, style: &StyleProps, body: impl FnOnce(&mut egui
     if border_radius > 0.0 {
         frame = frame.corner_radius(border_radius.round() as u8);
     }
+    let mut body = Some(body);
+
+    if inline_layout && specified_width.is_none() && height <= 0.0 {
+        if margin_left > 0.0 {
+            ui.add_space(margin_left);
+        }
+
+        let response = frame
+            .inner_margin(egui::Margin {
+                left: margin_component(padding_left + border_left),
+                right: margin_component(padding_right + border_right),
+                top: margin_component(padding_top + border_top),
+                bottom: margin_component(padding_bottom + border_bottom),
+            })
+            .show(ui, |ui| {
+                with_overflow_behavior(
+                    ui,
+                    style,
+                    body.take().expect("render_box body should run exactly once"),
+                );
+            })
+            .response;
+
+        paint_box_border(
+            ui.painter(),
+            response.rect,
+            border_top,
+            border_right,
+            border_bottom,
+            border_left,
+            border_color,
+            border_radius,
+        );
+
+        if margin_right > 0.0 {
+            ui.add_space(margin_right);
+        }
+        if margin_bottom > 0.0 {
+            ui.add_space(margin_bottom);
+        }
+        return;
+    }
 
     let horizontal_align = match style.text_align.unwrap_or(TextAlign::Left) {
         TextAlign::Left | TextAlign::Justify => egui::Align::Min,
@@ -3075,16 +3451,14 @@ fn render_box(ui: &mut egui::Ui, style: &StyleProps, body: impl FnOnce(&mut egui
         TextAlign::Right => egui::Align::Max,
     };
 
-    let mut content_rect: Option<egui::Rect> = None;
-    ui.horizontal(|ui| {
-        if margin_left > 0.0 {
-            ui.add_space(margin_left);
-        }
+    let mut paint = |ui: &mut egui::Ui| {
+        let mut content_rect: Option<egui::Rect> = None;
+        ui.horizontal(|ui| {
+            if margin_left > 0.0 {
+                ui.add_space(margin_left);
+            }
 
-        let response = ui.allocate_ui_with_layout(
-            egui::vec2(width, height),
-            egui::Layout::top_down(horizontal_align),
-            |ui| {
+            let mut render_inner = |ui: &mut egui::Ui| {
                 frame.show(ui, |ui| {
                     if border_top > 0.0 {
                         ui.add_space(border_top);
@@ -3102,7 +3476,11 @@ fn render_box(ui: &mut egui::Ui, style: &StyleProps, body: impl FnOnce(&mut egui
                         }
 
                         ui.vertical(|ui| {
-                            body(ui);
+                            with_overflow_behavior(
+                                ui,
+                                style,
+                                body.take().expect("render_box body should run exactly once"),
+                            );
                         });
 
                         if padding_right > 0.0 {
@@ -3119,32 +3497,57 @@ fn render_box(ui: &mut egui::Ui, style: &StyleProps, body: impl FnOnce(&mut egui
                     if border_bottom > 0.0 {
                         ui.add_space(border_bottom);
                     }
-                });
-            },
-        );
-        content_rect = Some(response.response.rect);
+                })
+                .response
+            };
 
-        if margin_right > 0.0 {
-            ui.add_space(margin_right);
+            let response = if inline_layout && width <= 0.0 && height <= 0.0 {
+                render_inner(ui)
+            } else {
+                ui.allocate_ui_with_layout(
+                    egui::vec2(width.max(1.0), height),
+                    egui::Layout::top_down(horizontal_align),
+                    |ui| {
+                        let _ = render_inner(ui);
+                    },
+                )
+                .response
+            };
+            content_rect = Some(response.rect);
+
+            if margin_right > 0.0 {
+                ui.add_space(margin_right);
+            }
+        });
+
+        if let Some(rect) = content_rect {
+            paint_box_border(
+                ui.painter(),
+                rect,
+                border_top,
+                border_right,
+                border_bottom,
+                border_left,
+                border_color,
+                border_radius,
+            );
         }
-    });
+    };
 
-    if let Some(rect) = content_rect {
-        paint_box_border(
-            ui.painter(),
-            rect,
-            border_top,
-            border_right,
-            border_bottom,
-            border_left,
-            border_color,
-            border_radius,
-        );
+    if let Some(order) = z_layer_order(style) {
+        let layer_id = egui::LayerId::new(order, ui.id().with(("css-z", style.z_index, ui.next_auto_id())));
+        ui.scope_builder(egui::UiBuilder::new().layer_id(layer_id), paint);
+    } else {
+        paint(ui);
     }
 
     if margin_bottom > 0.0 {
         ui.add_space(margin_bottom);
     }
+}
+
+fn margin_component(value: f32) -> i8 {
+    value.round().clamp(0.0, 127.0) as i8
 }
 
 fn paint_box_border(
@@ -3203,15 +3606,28 @@ fn paint_box_border(
 
 fn render_flex(ui: &mut egui::Ui, el: &HtmlElement, ctx: &mut Ctx<'_>, style: &StyleProps) {
     let direction = style.flex_direction.unwrap_or(FlexDirection::Row);
+    let flex_wrap = style.flex_wrap.unwrap_or(FlexWrap::NoWrap);
     let align_items = style.align_items.unwrap_or(AlignItems::Start);
+    let align_content = style.align_content.unwrap_or(AlignContent::Start);
     let justify_content = style.justify_content.unwrap_or(JustifyContent::Start);
     let gap = style.gap.unwrap_or(0.0).max(0.0);
 
-    let cross_align = match align_items {
+    let mut cross_align = match align_items {
         AlignItems::Start | AlignItems::Stretch => egui::Align::Min,
         AlignItems::Center => egui::Align::Center,
         AlignItems::End => egui::Align::Max,
     };
+    if matches!(flex_wrap, FlexWrap::Wrap) {
+        cross_align = match align_content {
+            AlignContent::Start => egui::Align::Min,
+            AlignContent::Center => egui::Align::Center,
+            AlignContent::End => egui::Align::Max,
+            AlignContent::SpaceBetween
+            | AlignContent::SpaceAround
+            | AlignContent::SpaceEvenly
+            | AlignContent::Stretch => cross_align,
+        };
+    }
 
     let main_align = match justify_content {
         JustifyContent::Start
@@ -3227,7 +3643,17 @@ fn render_flex(ui: &mut egui::Ui, el: &HtmlElement, ctx: &mut Ctx<'_>, style: &S
         FlexDirection::Column => egui::Layout::top_down(cross_align),
     };
     layout = layout.with_main_align(main_align);
+    layout = layout.with_main_wrap(matches!(flex_wrap, FlexWrap::Wrap));
     if matches!(align_items, AlignItems::Stretch) {
+        layout = layout.with_cross_justify(true);
+    }
+    if matches!(
+        align_content,
+        AlignContent::SpaceBetween
+            | AlignContent::SpaceAround
+            | AlignContent::SpaceEvenly
+            | AlignContent::Stretch
+    ) {
         layout = layout.with_cross_justify(true);
     }
     if matches!(
@@ -3249,6 +3675,63 @@ fn render_flex(ui: &mut egui::Ui, el: &HtmlElement, ctx: &mut Ctx<'_>, style: &S
             }
         });
     });
+}
+
+fn render_grid(ui: &mut egui::Ui, el: &HtmlElement, ctx: &mut Ctx<'_>, style: &StyleProps) {
+    let gap = style.gap.unwrap_or(0.0).max(0.0);
+    let min_track_width = style
+        .raw_css
+        .get("grid-template-columns")
+        .or_else(|| style.raw_css.get("grid-template"))
+        .and_then(|value| parse_grid_min_track_width(value))
+        .unwrap_or(220.0)
+        .max(1.0);
+
+    render_box(ui, style, |ui| {
+        let children = el
+            .children
+            .iter()
+            .filter(|node| !matches!(node, HtmlNode::Text(text) if text.trim().is_empty()))
+            .collect::<Vec<_>>();
+        if children.is_empty() {
+            return;
+        }
+
+        let available = ui.available_width().max(1.0);
+        let mut columns = ((available + gap) / (min_track_width + gap).max(1.0)).floor() as usize;
+        columns = columns.max(1).min(children.len());
+
+        let original_spacing = ui.spacing().item_spacing;
+        ui.spacing_mut().item_spacing = egui::vec2(gap, gap);
+        ui.columns(columns, |cols| {
+            for (index, child) in children.iter().enumerate() {
+                let col = index % columns;
+                render_node(&mut cols[col], child, ctx, style);
+            }
+        });
+        ui.spacing_mut().item_spacing = original_spacing;
+    });
+}
+
+fn parse_grid_min_track_width(value: &str) -> Option<f32> {
+    let lower = value.to_ascii_lowercase();
+    if let Some(start) = lower.find("minmax(") {
+        let rest = &value[(start + "minmax(".len())..];
+        if let Some(end) = rest.find(')')
+            && let Some(first) = rest[..end].split(',').next()
+            && let Some(parsed) = parse_non_negative_length(first.trim())
+        {
+            return Some(parsed.max(1.0));
+        }
+    }
+
+    for token in value.split(|ch: char| ch.is_whitespace() || ch == ',') {
+        if let Some(parsed) = parse_non_negative_length(token.trim()) {
+            return Some(parsed.max(1.0));
+        }
+    }
+
+    None
 }
 
 fn apply_html_presentational_attributes(el: &HtmlElement, style: &mut StyleProps) {
@@ -3436,7 +3919,15 @@ fn style_for(
     if style.white_space.is_none() {
         style.white_space = inherited.white_space;
     }
-    if let Some(parent_opacity) = inherited.opacity {
+    if style.list_style_type.is_none() {
+        style.list_style_type = inherited.list_style_type.clone();
+    }
+    let inherited_effective_opacity = if inherited.opacity.is_some() {
+        Some(effective_opacity(inherited))
+    } else {
+        None
+    };
+    if let Some(parent_opacity) = inherited_effective_opacity {
         let own_opacity = style.opacity.unwrap_or(1.0);
         style.opacity = Some((parent_opacity * own_opacity).clamp(0.0, 1.0));
     } else if let Some(own_opacity) = style.opacity {
@@ -3558,6 +4049,15 @@ fn apply_inherit_keyword(
             apply_cascade_value(
                 &mut style.white_space,
                 &mut priorities.white_space,
+                None,
+                priority,
+            );
+            true
+        }
+        "list-style" | "list-style-type" => {
+            apply_cascade_value(
+                &mut style.list_style_type,
+                &mut priorities.list_style_type,
                 None,
                 priority,
             );
@@ -3688,6 +4188,14 @@ fn apply_style_with_priority(
             priority,
         );
     }
+    if incoming.flex_wrap.is_some() {
+        apply_cascade_value(
+            &mut style.flex_wrap,
+            &mut priorities.flex_wrap,
+            incoming.flex_wrap,
+            priority,
+        );
+    }
     if incoming.justify_content.is_some() {
         apply_cascade_value(
             &mut style.justify_content,
@@ -3701,6 +4209,14 @@ fn apply_style_with_priority(
             &mut style.align_items,
             &mut priorities.align_items,
             incoming.align_items,
+            priority,
+        );
+    }
+    if incoming.align_content.is_some() {
+        apply_cascade_value(
+            &mut style.align_content,
+            &mut priorities.align_content,
+            incoming.align_content,
             priority,
         );
     }
@@ -3720,6 +4236,78 @@ fn apply_style_with_priority(
             &mut style.white_space,
             &mut priorities.white_space,
             incoming.white_space,
+            priority,
+        );
+    }
+    if incoming.list_style_type.is_some() {
+        apply_cascade_value(
+            &mut style.list_style_type,
+            &mut priorities.list_style_type,
+            incoming.list_style_type.clone(),
+            priority,
+        );
+    }
+    if incoming.position.is_some() {
+        apply_cascade_value(
+            &mut style.position,
+            &mut priorities.position,
+            incoming.position,
+            priority,
+        );
+    }
+    if incoming.inset_top.is_some() {
+        apply_cascade_value(
+            &mut style.inset_top,
+            &mut priorities.inset_top,
+            incoming.inset_top,
+            priority,
+        );
+    }
+    if incoming.inset_right.is_some() {
+        apply_cascade_value(
+            &mut style.inset_right,
+            &mut priorities.inset_right,
+            incoming.inset_right,
+            priority,
+        );
+    }
+    if incoming.inset_bottom.is_some() {
+        apply_cascade_value(
+            &mut style.inset_bottom,
+            &mut priorities.inset_bottom,
+            incoming.inset_bottom,
+            priority,
+        );
+    }
+    if incoming.inset_left.is_some() {
+        apply_cascade_value(
+            &mut style.inset_left,
+            &mut priorities.inset_left,
+            incoming.inset_left,
+            priority,
+        );
+    }
+    if incoming.z_index.is_some() {
+        apply_cascade_value(
+            &mut style.z_index,
+            &mut priorities.z_index,
+            incoming.z_index,
+            priority,
+        );
+    }
+    if incoming.overflow_x.is_some() {
+        apply_cascade_value(
+            &mut style.overflow_x,
+            &mut priorities.overflow_x,
+            incoming.overflow_x,
+            priority,
+        );
+    }
+    if incoming.overflow_y.is_some() {
+        apply_cascade_value(
+            &mut style.overflow_y,
+            &mut priorities.overflow_y,
+            incoming.overflow_y,
             priority,
         );
     }
@@ -3894,7 +4482,7 @@ fn apply_edge_with_priority(
     }
 }
 
-fn apply_cascade_value<T: Copy>(
+fn apply_cascade_value<T>(
     target: &mut Option<T>,
     target_priority: &mut Option<CascadePriority>,
     incoming: Option<T>,
@@ -4378,6 +4966,8 @@ fn supports_inherit_keyword(property_name: &str) -> bool {
             | "line-height"
             | "text-transform"
             | "white-space"
+            | "list-style"
+            | "list-style-type"
     )
 }
 
@@ -5013,6 +5603,7 @@ fn selector_subject(el: &HtmlElement) -> SelectorSubject {
     }
 }
 
+#[cfg(test)]
 fn parse_declarations(input: &str) -> StyleProps {
     let mut out = StyleProps::default();
 
@@ -5066,7 +5657,7 @@ fn apply_named_declaration(name: &str, value: &str, out: &mut StyleProps) {
             }
         }
         "background" | "background-color" => {
-            if let Some(v) = parse_color(value) {
+            if let Some(v) = parse_color(value).or_else(|| parse_first_color_in_css_value(value)) {
                 out.bg = Some(v);
             }
         }
@@ -5093,6 +5684,11 @@ fn apply_named_declaration(name: &str, value: &str, out: &mut StyleProps) {
                 out.flex_direction = Some(v);
             }
         }
+        "flex-wrap" => {
+            if let Some(v) = parse_flex_wrap(value) {
+                out.flex_wrap = Some(v);
+            }
+        }
         "justify-content" => {
             if let Some(v) = parse_justify_content(value) {
                 out.justify_content = Some(v);
@@ -5103,6 +5699,13 @@ fn apply_named_declaration(name: &str, value: &str, out: &mut StyleProps) {
                 out.align_items = Some(v);
             }
         }
+        "align-content" => {
+            if let Some(v) = parse_align_content(value) {
+                out.align_content = Some(v);
+            }
+        }
+        "place-content" => apply_place_content_shorthand(value, out),
+        "place-items" => apply_place_items_shorthand(value, out),
         "gap" | "row-gap" | "column-gap" => {
             if let Some(v) = parse_length(value) {
                 out.gap = Some(v.max(0.0));
@@ -5121,6 +5724,57 @@ fn apply_named_declaration(name: &str, value: &str, out: &mut StyleProps) {
         "text-decoration" | "text-decoration-line" => {
             apply_text_decoration(value, out);
         }
+        "list-style-type" => {
+            if let Some(v) = parse_list_style_type(value) {
+                out.list_style_type = Some(v.to_owned());
+            }
+        }
+        "list-style" => {
+            if let Some(v) = parse_list_style_type(value) {
+                out.list_style_type = Some(v.to_owned());
+            }
+        }
+        "position" => {
+            if let Some(v) = parse_position_mode(value) {
+                out.position = Some(v);
+            }
+        }
+        "top" => {
+            if let Some(v) = parse_length(value) {
+                out.inset_top = Some(v);
+            }
+        }
+        "right" => {
+            if let Some(v) = parse_length(value) {
+                out.inset_right = Some(v);
+            }
+        }
+        "bottom" => {
+            if let Some(v) = parse_length(value) {
+                out.inset_bottom = Some(v);
+            }
+        }
+        "left" => {
+            if let Some(v) = parse_length(value) {
+                out.inset_left = Some(v);
+            }
+        }
+        "z-index" => {
+            if let Some(v) = parse_z_index(value) {
+                out.z_index = Some(v);
+            }
+        }
+        "overflow" => apply_overflow_shorthand(value, out),
+        "overflow-x" => {
+            if let Some(v) = parse_overflow_mode(value) {
+                out.overflow_x = Some(v);
+            }
+        }
+        "overflow-y" => {
+            if let Some(v) = parse_overflow_mode(value) {
+                out.overflow_y = Some(v);
+            }
+        }
         "vertical-align" => {
             if let Some(v) = parse_vertical_align(value) {
                 out.script = Some(v);
@@ -5136,6 +5790,16 @@ fn apply_named_declaration(name: &str, value: &str, out: &mut StyleProps) {
         "height" => {
             if let Some(v) = parse_length(value) {
                 out.height = Some(v.max(1.0));
+            }
+        }
+        "min-height" => {
+            if let Some(v) = parse_length(value) {
+                out.min_height = Some(v.max(0.0));
+            }
+        }
+        "max-height" => {
+            if let Some(v) = parse_length(value) {
+                out.max_height = Some(v.max(0.0));
             }
         }
         "min-width" => {
@@ -5205,6 +5869,20 @@ fn apply_raw_css_aliases(style: &mut StyleProps) {
         style.white_space = Some(value);
     }
 
+    if style.list_style_type.is_none() {
+        if let Some(value) = raw("list-style-type")
+            .as_deref()
+            .and_then(parse_list_style_type)
+        {
+            style.list_style_type = Some(value.to_owned());
+        } else if let Some(value) = raw("list-style")
+            .as_deref()
+            .and_then(parse_list_style_type)
+        {
+            style.list_style_type = Some(value.to_owned());
+        }
+    }
+
     if style.border_radius.is_none()
         && let Some(value) = raw("border-radius").as_deref().and_then(parse_border_radius)
     {
@@ -5267,6 +5945,12 @@ fn apply_raw_css_aliases(style: &mut StyleProps) {
         if let Some(value) = gap_value {
             style.gap = Some(value);
         }
+    }
+
+    if style.flex_wrap.is_none()
+        && let Some(value) = raw("flex-wrap").as_deref().and_then(parse_flex_wrap)
+    {
+        style.flex_wrap = Some(value);
     }
 
     if let Some(value) = raw("margin-inline").as_deref().and_then(parse_margin_pair) {
@@ -5411,7 +6095,7 @@ fn apply_raw_css_aliases(style: &mut StyleProps) {
             .and_then(parse_align_items)
         {
             style.align_items = Some(value);
-        } else if let Some(value) = raw("align-content")
+        } else if let Some(value) = raw("align-items")
             .as_deref()
             .and_then(parse_align_items)
         {
@@ -5419,13 +6103,117 @@ fn apply_raw_css_aliases(style: &mut StyleProps) {
         }
     }
 
-    if style.justify_content.is_none()
-        && let Some(value) = raw("place-content")
+    if style.align_content.is_none()
+        && let Some(value) = raw("align-content")
             .as_deref()
-            .and_then(parse_second_or_first_token)
-            .and_then(parse_justify_content)
+            .and_then(parse_align_content)
     {
-        style.justify_content = Some(value);
+        style.align_content = Some(value);
+    }
+
+    if let Some(value) = raw("place-content") {
+        apply_place_content_shorthand(value.as_str(), style);
+    }
+
+    if style.position.is_none()
+        && let Some(value) = raw("position").as_deref().and_then(parse_position_mode)
+    {
+        style.position = Some(value);
+    }
+    if style.z_index.is_none()
+        && let Some(value) = raw("z-index").as_deref().and_then(parse_z_index)
+    {
+        style.z_index = Some(value);
+    }
+
+    if style.inset_top.is_none()
+        && let Some(value) = raw("top").as_deref().and_then(parse_length)
+    {
+        style.inset_top = Some(value);
+    }
+    if style.inset_right.is_none()
+        && let Some(value) = raw("right").as_deref().and_then(parse_length)
+    {
+        style.inset_right = Some(value);
+    }
+    if style.inset_bottom.is_none()
+        && let Some(value) = raw("bottom").as_deref().and_then(parse_length)
+    {
+        style.inset_bottom = Some(value);
+    }
+    if style.inset_left.is_none()
+        && let Some(value) = raw("left").as_deref().and_then(parse_length)
+    {
+        style.inset_left = Some(value);
+    }
+
+    if let Some(value) = raw("inset").as_deref().and_then(parse_edges) {
+        if style.inset_top.is_none() {
+            style.inset_top = value.top;
+        }
+        if style.inset_right.is_none() {
+            style.inset_right = value.right;
+        }
+        if style.inset_bottom.is_none() {
+            style.inset_bottom = value.bottom;
+        }
+        if style.inset_left.is_none() {
+            style.inset_left = value.left;
+        }
+    }
+
+    if let Some(value) = raw("inset-inline").as_deref().and_then(parse_length_pair) {
+        if style.inset_left.is_none() {
+            style.inset_left = Some(value.0);
+        }
+        if style.inset_right.is_none() {
+            style.inset_right = Some(value.1);
+        }
+    }
+    if let Some(value) = raw("inset-block").as_deref().and_then(parse_length_pair) {
+        if style.inset_top.is_none() {
+            style.inset_top = Some(value.0);
+        }
+        if style.inset_bottom.is_none() {
+            style.inset_bottom = Some(value.1);
+        }
+    }
+
+    if style.overflow_x.is_none() || style.overflow_y.is_none() {
+        if let Some(value) = raw("overflow") {
+            let mut parsed = StyleProps::default();
+            apply_overflow_shorthand(value.as_str(), &mut parsed);
+            if style.overflow_x.is_none() {
+                style.overflow_x = parsed.overflow_x;
+            }
+            if style.overflow_y.is_none() {
+                style.overflow_y = parsed.overflow_y;
+            }
+        }
+    }
+    if style.overflow_x.is_none()
+        && let Some(value) = raw("overflow-x").as_deref().and_then(parse_overflow_mode)
+    {
+        style.overflow_x = Some(value);
+    }
+    if style.overflow_y.is_none()
+        && let Some(value) = raw("overflow-y").as_deref().and_then(parse_overflow_mode)
+    {
+        style.overflow_y = Some(value);
+    }
+    if style.overflow_x.is_none()
+        && let Some(value) = raw("overflow-inline")
+            .as_deref()
+            .and_then(parse_overflow_mode)
+    {
+        style.overflow_x = Some(value);
+    }
+    if style.overflow_y.is_none()
+        && let Some(value) = raw("overflow-block")
+            .as_deref()
+            .and_then(parse_overflow_mode)
+    {
+        style.overflow_y = Some(value);
     }
 }
 
@@ -5479,13 +6267,37 @@ fn parse_first_token(value: &str) -> Option<&str> {
         .filter(|token| !token.is_empty())
 }
 
-fn parse_second_or_first_token(value: &str) -> Option<&str> {
-    let mut parts = value
-        .split_ascii_whitespace()
-        .map(str::trim)
-        .filter(|token| !token.is_empty());
-    let first = parts.next()?;
-    Some(parts.next().unwrap_or(first))
+fn parse_list_style_type(value: &str) -> Option<&'static str> {
+    for token in value.split_ascii_whitespace() {
+        let lower = token.trim().to_ascii_lowercase();
+        let normalized = match lower.as_str() {
+            "none" => "none",
+            "disc" => "disc",
+            "circle" => "circle",
+            "square" => "square",
+            "decimal" | "decimal-leading-zero" => "decimal",
+            "lower-alpha" | "lower-latin" | "a" => "lower-alpha",
+            "upper-alpha" | "upper-latin" | "A" => "upper-alpha",
+            "lower-roman" | "i" => "lower-roman",
+            "upper-roman" | "I" => "upper-roman",
+            _ => continue,
+        };
+        return Some(normalized);
+    }
+    None
+}
+
+fn parse_first_color_in_css_value(value: &str) -> Option<egui::Color32> {
+    for raw in value.split(|ch: char| ch.is_whitespace() || ch == ',' || ch == '(' || ch == ')') {
+        let token = raw.trim();
+        if token.is_empty() {
+            continue;
+        }
+        if let Some(color) = parse_color(token) {
+            return Some(color);
+        }
+    }
+    None
 }
 
 fn parse_border_radius(value: &str) -> Option<f32> {
@@ -5532,8 +6344,9 @@ fn split_important(value: &str) -> (&str, bool) {
 
 fn parse_display(value: &str) -> Option<Display> {
     match value.trim().to_ascii_lowercase().as_str() {
-        "block" | "table" | "list-item" | "grid" => Some(Display::Block),
+        "block" | "table" | "list-item" => Some(Display::Block),
         "flex" | "inline-flex" => Some(Display::Flex),
+        "grid" | "inline-grid" => Some(Display::Grid),
         "inline" | "inline-block" => Some(Display::Inline),
         "none" => Some(Display::None),
         _ => None,
@@ -5568,6 +6381,14 @@ fn parse_flex_direction(value: &str) -> Option<FlexDirection> {
     }
 }
 
+fn parse_flex_wrap(value: &str) -> Option<FlexWrap> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "nowrap" => Some(FlexWrap::NoWrap),
+        "wrap" | "wrap-reverse" => Some(FlexWrap::Wrap),
+        _ => None,
+    }
+}
+
 fn parse_justify_content(value: &str) -> Option<JustifyContent> {
     match value.trim().to_ascii_lowercase().as_str() {
         "flex-start" | "start" | "left" => Some(JustifyContent::Start),
@@ -5588,6 +6409,48 @@ fn parse_align_items(value: &str) -> Option<AlignItems> {
         "stretch" => Some(AlignItems::Stretch),
         _ => None,
     }
+}
+
+fn parse_align_content(value: &str) -> Option<AlignContent> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "flex-start" | "start" | "top" => Some(AlignContent::Start),
+        "center" => Some(AlignContent::Center),
+        "flex-end" | "end" | "bottom" => Some(AlignContent::End),
+        "space-between" => Some(AlignContent::SpaceBetween),
+        "space-around" => Some(AlignContent::SpaceAround),
+        "space-evenly" => Some(AlignContent::SpaceEvenly),
+        "stretch" => Some(AlignContent::Stretch),
+        _ => None,
+    }
+}
+
+fn parse_position_mode(value: &str) -> Option<PositionMode> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "static" => Some(PositionMode::Static),
+        "relative" => Some(PositionMode::Relative),
+        "absolute" => Some(PositionMode::Absolute),
+        "fixed" => Some(PositionMode::Fixed),
+        "sticky" => Some(PositionMode::Sticky),
+        _ => None,
+    }
+}
+
+fn parse_overflow_mode(value: &str) -> Option<OverflowMode> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "visible" => Some(OverflowMode::Visible),
+        "hidden" | "clip" => Some(OverflowMode::Hidden),
+        "auto" => Some(OverflowMode::Auto),
+        "scroll" => Some(OverflowMode::Scroll),
+        _ => None,
+    }
+}
+
+fn parse_z_index(value: &str) -> Option<i32> {
+    let raw = value.trim();
+    if raw.eq_ignore_ascii_case("auto") {
+        return Some(0);
+    }
+    raw.parse::<i32>().ok()
 }
 
 fn parse_text_align(value: &str) -> Option<TextAlign> {
@@ -5627,20 +6490,24 @@ fn parse_font_family(value: &str) -> Option<FontFamilyChoice> {
 fn parse_font_weight(value: &str) -> Option<bool> {
     let raw = value.trim().to_ascii_lowercase();
     match raw.as_str() {
-        "normal" | "lighter" => Some(false),
-        "bold" | "bolder" => Some(true),
+        "normal" | "lighter" | "thin" | "extra-light" | "ultra-light" | "light" => Some(false),
+        "bold" | "bolder" | "semibold" | "demibold" | "extra-bold" | "ultra-bold" | "black"
+        | "heavy" | "medium" => Some(true),
         _ => {
             let numeric = raw.parse::<u16>().ok()?;
-            Some(numeric >= 600)
+            Some(numeric >= 500)
         }
     }
 }
 
 fn parse_font_style(value: &str) -> Option<bool> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "normal" => Some(false),
-        "italic" | "oblique" => Some(true),
-        _ => None,
+    let raw = value.trim().to_ascii_lowercase();
+    if raw == "normal" {
+        Some(false)
+    } else if raw == "italic" || raw.starts_with("oblique") {
+        Some(true)
+    } else {
+        None
     }
 }
 
@@ -5717,6 +6584,58 @@ fn apply_text_decoration(value: &str, out: &mut StyleProps) {
     }
     if raw.contains("line-through") {
         out.strike = Some(true);
+    }
+}
+
+fn apply_overflow_shorthand(value: &str, out: &mut StyleProps) {
+    let mut parts = value
+        .split_ascii_whitespace()
+        .filter(|part| !part.trim().is_empty());
+    let Some(first_raw) = parts.next() else {
+        return;
+    };
+    let first = parse_overflow_mode(first_raw);
+    let second = parts.next().and_then(parse_overflow_mode).or(first);
+
+    if let Some(x) = first {
+        out.overflow_x = Some(x);
+    }
+    if let Some(y) = second {
+        out.overflow_y = Some(y);
+    }
+}
+
+fn apply_place_items_shorthand(value: &str, out: &mut StyleProps) {
+    let mut parts = value
+        .split_ascii_whitespace()
+        .map(str::trim)
+        .filter(|part| !part.is_empty());
+    let Some(first) = parts.next() else {
+        return;
+    };
+    let second = parts.next().unwrap_or(first);
+    if let Some(v) = parse_align_items(first) {
+        out.align_items = Some(v);
+    }
+    if out.justify_content.is_none() && let Some(v) = parse_justify_content(second) {
+        out.justify_content = Some(v);
+    }
+}
+
+fn apply_place_content_shorthand(value: &str, out: &mut StyleProps) {
+    let mut parts = value
+        .split_ascii_whitespace()
+        .map(str::trim)
+        .filter(|part| !part.is_empty());
+    let Some(first) = parts.next() else {
+        return;
+    };
+    let second = parts.next().unwrap_or(first);
+    if let Some(v) = parse_align_content(first) {
+        out.align_content = Some(v);
+    }
+    if let Some(v) = parse_justify_content(second) {
+        out.justify_content = Some(v);
     }
 }
 
@@ -6817,10 +7736,10 @@ fn is_block(tag: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        AlignItems, Display, FlexDirection, FontFamilyChoice, HtmlDocument, HtmlElement, HtmlNode,
-        JustifyContent, MDN_REFERENCE_ATTRIBUTES, MDN_REFERENCE_ELEMENTS, ScriptDescriptor,
-        ScriptPosition, StyleProps, StyleSheet, TextAlign, TextEffects, TextTransform,
-        WhiteSpaceMode, collapse_whitespace, decode_entities, find_first_element,
+        AlignContent, AlignItems, Display, FlexDirection, FlexWrap, FontFamilyChoice, HtmlDocument,
+        HtmlElement, HtmlNode, JustifyContent, MDN_REFERENCE_ATTRIBUTES, MDN_REFERENCE_ELEMENTS,
+        OverflowMode, PositionMode, ScriptDescriptor, ScriptPosition, StyleProps, StyleSheet,
+        TextAlign, TextEffects, TextTransform, WhiteSpaceMode, collapse_whitespace, decode_entities, find_first_element,
         is_likely_screen_reader_only, is_mdn_reference_attribute, is_mdn_reference_css_property,
         is_mdn_reference_element, is_void, mdn_reference_css_properties,
         normalize_text_for_render, ordered_list_marker, parse_color, parse_css_rules,
@@ -7097,6 +8016,30 @@ mod tests {
         assert_eq!(style.justify_content, Some(JustifyContent::Center));
         assert_eq!(style.align_items, Some(AlignItems::Stretch));
         assert_eq!(style.gap, Some(12.0));
+    }
+
+    #[test]
+    fn parses_flex_wrap_and_align_content_declarations() {
+        let style = parse_declarations(
+            "display:flex;flex-wrap:wrap;align-content:space-between;place-content:center end;",
+        );
+        assert_eq!(style.display, Some(Display::Flex));
+        assert_eq!(style.flex_wrap, Some(FlexWrap::Wrap));
+        assert_eq!(style.align_content, Some(AlignContent::Center));
+        assert_eq!(style.justify_content, Some(JustifyContent::End));
+    }
+
+    #[test]
+    fn parses_position_overflow_and_z_index_declarations() {
+        let style = parse_declarations(
+            "position:absolute;top:10px;right:16px;z-index:42;overflow:hidden auto;",
+        );
+        assert_eq!(style.position, Some(PositionMode::Absolute));
+        assert_eq!(style.inset_top, Some(10.0));
+        assert_eq!(style.inset_right, Some(16.0));
+        assert_eq!(style.z_index, Some(42));
+        assert_eq!(style.overflow_x, Some(OverflowMode::Hidden));
+        assert_eq!(style.overflow_y, Some(OverflowMode::Auto));
     }
 
     #[test]
