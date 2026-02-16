@@ -1,6 +1,7 @@
 use eframe::egui;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::sync::OnceLock;
 use url::Url;
 
 #[derive(Debug, Clone)]
@@ -182,6 +183,23 @@ enum TextAlign {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TextTransform {
+    None,
+    Uppercase,
+    Lowercase,
+    Capitalize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WhiteSpaceMode {
+    Normal,
+    NoWrap,
+    Pre,
+    PreWrap,
+    PreLine,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FontFamilyChoice {
     Proportional,
     Monospace,
@@ -360,6 +378,138 @@ const MDN_REFERENCE_ELEMENTS: &[&str] = &[
     "xmp",
 ];
 
+// Sourced from MDN HTML attribute reference:
+// https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Attributes
+#[cfg_attr(not(test), allow(dead_code))]
+const MDN_REFERENCE_ATTRIBUTES: &[&str] = &[
+    "accept",
+    "accept-charset",
+    "accesskey",
+    "action",
+    "align",
+    "allow",
+    "alpha",
+    "alt",
+    "as",
+    "async",
+    "autocapitalize",
+    "autocomplete",
+    "autoplay",
+    "background",
+    "bgcolor",
+    "border",
+    "capture",
+    "charset",
+    "checked",
+    "cite",
+    "class",
+    "color",
+    "colorspace",
+    "cols",
+    "colspan",
+    "content",
+    "contenteditable",
+    "controls",
+    "coords",
+    "crossorigin",
+    "csp",
+    "data",
+    "data-*",
+    "datetime",
+    "decoding",
+    "default",
+    "defer",
+    "dir",
+    "dirname",
+    "disabled",
+    "download",
+    "draggable",
+    "elementtiming",
+    "enctype",
+    "enterkeyhint",
+    "fetchpriority",
+    "for",
+    "form",
+    "formaction",
+    "formenctype",
+    "formmethod",
+    "formnovalidate",
+    "formtarget",
+    "headers",
+    "height",
+    "hidden",
+    "high",
+    "href",
+    "hreflang",
+    "http-equiv",
+    "id",
+    "integrity",
+    "ismap",
+    "itemprop",
+    "kind",
+    "label",
+    "lang",
+    "language",
+    "list",
+    "loading",
+    "loop",
+    "low",
+    "max",
+    "maxlength",
+    "media",
+    "method",
+    "min",
+    "minlength",
+    "multiple",
+    "muted",
+    "name",
+    "novalidate",
+    "open",
+    "optimum",
+    "pattern",
+    "ping",
+    "placeholder",
+    "playsinline",
+    "poster",
+    "preload",
+    "readonly",
+    "referrerpolicy",
+    "rel",
+    "required",
+    "reversed",
+    "role",
+    "rows",
+    "rowspan",
+    "sandbox",
+    "scope",
+    "selected",
+    "shape",
+    "size",
+    "sizes",
+    "slot",
+    "span",
+    "spellcheck",
+    "src",
+    "srcdoc",
+    "srclang",
+    "srcset",
+    "start",
+    "step",
+    "style",
+    "summary",
+    "tabindex",
+    "target",
+    "title",
+    "translate",
+    "type",
+    "usemap",
+    "value",
+    "width",
+    "wrap",
+];
+
+const MDN_REFERENCE_CSS_PROPERTIES_RAW: &str = include_str!("mdn_css_reference_properties.txt");
+
 fn canonical_element_tag(tag: &str) -> &str {
     match tag {
         "image" => "img",
@@ -373,6 +523,69 @@ fn is_mdn_reference_element(tag: &str) -> bool {
     MDN_REFERENCE_ELEMENTS
         .iter()
         .any(|candidate| *candidate == tag)
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+fn is_mdn_reference_attribute(name: &str) -> bool {
+    let lower = name.trim().to_ascii_lowercase();
+    if lower.is_empty() {
+        return false;
+    }
+
+    if lower.starts_with("data-") && lower.len() > "data-".len() {
+        return true;
+    }
+    if lower.starts_with("aria-") && lower.len() > "aria-".len() {
+        return true;
+    }
+    if lower.starts_with("on") && lower.len() > 2 {
+        return true;
+    }
+
+    MDN_REFERENCE_ATTRIBUTES
+        .iter()
+        .any(|candidate| *candidate == lower)
+}
+
+fn mdn_reference_css_properties() -> &'static [&'static str] {
+    static PROPERTIES: OnceLock<Vec<&'static str>> = OnceLock::new();
+    PROPERTIES
+        .get_or_init(|| {
+            MDN_REFERENCE_CSS_PROPERTIES_RAW
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .filter(|line| !line.starts_with('#'))
+                .filter(|line| *line != "--*")
+                .collect::<Vec<_>>()
+        })
+        .as_slice()
+}
+
+fn mdn_reference_css_property_set() -> &'static HashSet<&'static str> {
+    static PROPERTY_SET: OnceLock<HashSet<&'static str>> = OnceLock::new();
+    PROPERTY_SET.get_or_init(|| {
+        mdn_reference_css_properties()
+            .iter()
+            .copied()
+            .collect::<HashSet<_>>()
+    })
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+fn is_mdn_reference_css_property(name: &str) -> bool {
+    let lower = name.trim().to_ascii_lowercase();
+    if lower.is_empty() {
+        return false;
+    }
+
+    // Custom properties and vendor-prefixed properties are valid CSS extensions.
+    if (lower.starts_with("--") && lower.len() > 2) || (lower.starts_with('-') && lower.len() > 1)
+    {
+        return true;
+    }
+
+    mdn_reference_css_property_set().contains(lower.as_str())
 }
 
 fn is_non_rendered_element_tag(tag: &str) -> bool {
@@ -492,15 +705,21 @@ struct StyleProps {
     justify_content: Option<JustifyContent>,
     align_items: Option<AlignItems>,
     gap: Option<f32>,
+    text_transform: Option<TextTransform>,
+    white_space: Option<WhiteSpaceMode>,
     width: Option<f32>,
     width_percent: Option<f32>,
     min_width: Option<f32>,
     max_width: Option<f32>,
     height: Option<f32>,
+    min_height: Option<f32>,
+    max_height: Option<f32>,
     margin: Edges,
     padding: Edges,
     border_width: Edges,
     border_color: Option<egui::Color32>,
+    border_radius: Option<f32>,
+    raw_css: HashMap<String, String>,
 }
 
 impl StyleProps {
@@ -523,11 +742,15 @@ impl StyleProps {
             && self.justify_content.is_none()
             && self.align_items.is_none()
             && self.gap.is_none()
+            && self.text_transform.is_none()
+            && self.white_space.is_none()
             && self.width.is_none()
             && self.width_percent.is_none()
             && self.min_width.is_none()
             && self.max_width.is_none()
             && self.height.is_none()
+            && self.min_height.is_none()
+            && self.max_height.is_none()
             && self.margin.top.is_none()
             && self.margin.right.is_none()
             && self.margin.bottom.is_none()
@@ -541,6 +764,8 @@ impl StyleProps {
             && self.border_width.bottom.is_none()
             && self.border_width.left.is_none()
             && self.border_color.is_none()
+            && self.border_radius.is_none()
+            && self.raw_css.is_empty()
     }
 }
 
@@ -579,15 +804,21 @@ struct StylePriority {
     justify_content: Option<CascadePriority>,
     align_items: Option<CascadePriority>,
     gap: Option<CascadePriority>,
+    text_transform: Option<CascadePriority>,
+    white_space: Option<CascadePriority>,
     width: Option<CascadePriority>,
     width_percent: Option<CascadePriority>,
     min_width: Option<CascadePriority>,
     max_width: Option<CascadePriority>,
     height: Option<CascadePriority>,
+    min_height: Option<CascadePriority>,
+    max_height: Option<CascadePriority>,
     margin: EdgePriority,
     padding: EdgePriority,
     border_width: EdgePriority,
     border_color: Option<CascadePriority>,
+    border_radius: Option<CascadePriority>,
+    raw_css: HashMap<String, CascadePriority>,
 }
 
 struct Ctx<'a> {
@@ -1092,6 +1323,7 @@ fn render_inline(ui: &mut egui::Ui, nodes: &[HtmlNode], ctx: &mut Ctx<'_>, inher
 }
 fn render_link(ui: &mut egui::Ui, el: &HtmlElement, ctx: &mut Ctx<'_>, style: &StyleProps) {
     let href = attr(el, "href").map(ToOwned::to_owned);
+    let disabled = has_attr(el, "disabled") || has_attr(el, "inert");
     let text = {
         let raw = collapse_whitespace(&collect_text(&el.children));
         if raw.is_empty() {
@@ -1111,6 +1343,11 @@ fn render_link(ui: &mut egui::Ui, el: &HtmlElement, ctx: &mut Ctx<'_>, style: &S
     let Some(text) = text else {
         return;
     };
+
+    if disabled {
+        render_text(ui, &text, style, TextEffects::default());
+        return;
+    }
 
     if let Some(href) = href {
         if let Some(url) = resolve_link(ctx.base_url, &href) {
@@ -1533,12 +1770,14 @@ fn render_table_row(
             };
 
             let mut resolved_widths = Vec::with_capacity(cells.len());
+            let mut cell_spans = Vec::with_capacity(cells.len());
             let mut auto_width_indices = Vec::new();
             let mut fixed_total = 0.0_f32;
 
             for (cell_index, cell) in cells.iter().enumerate() {
                 let mut cell_style = style_for(cell, ctx.styles, &row_style, &ctx.ancestor_stack);
                 cell_style = apply_html_alignment_attr(cell, &cell_style);
+                let colspan = parse_usize_attr(cell, "colspan").unwrap_or(1).max(1);
 
                 let width_from_css = cell_style.width.or_else(|| {
                     cell_style
@@ -1565,13 +1804,20 @@ fn render_table_row(
                 }
 
                 resolved_widths.push(resolved);
+                cell_spans.push(colspan);
             }
 
             if !auto_width_indices.is_empty() {
                 let remaining = (row_width - spacing_total - fixed_total).max(1.0);
-                let per_auto = (remaining / auto_width_indices.len() as f32).max(1.0);
+                let auto_span_total = auto_width_indices
+                    .iter()
+                    .map(|index| cell_spans[*index])
+                    .sum::<usize>()
+                    .max(1);
+                let per_auto = (remaining / auto_span_total as f32).max(1.0);
                 for index in auto_width_indices {
-                    resolved_widths[index] = Some(per_auto);
+                    let span = cell_spans.get(index).copied().unwrap_or(1).max(1);
+                    resolved_widths[index] = Some((per_auto * span as f32).max(1.0));
                 }
             }
 
@@ -1659,8 +1905,29 @@ fn render_list(
     ctx: &mut Ctx<'_>,
     style: &StyleProps,
 ) {
+    let reversed = numbered && has_attr(el, "reversed");
+    let mut index = if numbered {
+        parse_usize_attr(el, "start").unwrap_or(1)
+    } else {
+        1
+    };
+    let marker_kind = attr(el, "type")
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty());
+
+    if numbered && reversed && !has_attr(el, "start") {
+        let list_len = el
+            .children
+            .iter()
+            .filter_map(|node| match node {
+                HtmlNode::Element(item) if item.tag == "li" => Some(item),
+                _ => None,
+            })
+            .count();
+        index = list_len.max(1);
+    }
+
     render_box(ui, style, |ui| {
-        let mut index = 1_usize;
         for child in &el.children {
             let HtmlNode::Element(item) = child else {
                 continue;
@@ -1676,9 +1943,9 @@ fn render_list(
 
             ui.horizontal_wrapped(|ui| {
                 let mark = if numbered {
-                    format!("{}.", index)
+                    ordered_list_marker(index, marker_kind.as_deref())
                 } else {
-                    "*".to_owned()
+                    unordered_list_marker(marker_kind.as_deref())
                 };
                 ctx.ancestor_stack.push(selector_subject(item));
                 if is_rtl_layout(&item_style) {
@@ -1690,11 +1957,96 @@ fn render_list(
                 }
                 ctx.ancestor_stack.pop();
             });
-            index = index.saturating_add(1);
+            if numbered && reversed {
+                index = index.saturating_sub(1);
+            } else {
+                index = index.saturating_add(1);
+            }
         }
     });
 
     add_default_bottom_spacing(ui, style, 4.0);
+}
+
+fn ordered_list_marker(index: usize, marker_type: Option<&str>) -> String {
+    let marker = marker_type
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .unwrap_or("1");
+
+    match marker {
+        "a" => format!("{}.", alpha_list_marker(index, false)),
+        "A" => format!("{}.", alpha_list_marker(index, true)),
+        "i" => format!("{}.", roman_list_marker(index, false)),
+        "I" => format!("{}.", roman_list_marker(index, true)),
+        _ => format!("{}.", index),
+    }
+}
+
+fn unordered_list_marker(marker_type: Option<&str>) -> String {
+    match marker_type
+        .map(|value| value.trim().to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("circle") => "\u{25E6}".to_owned(),
+        Some("square") => "\u{25AA}".to_owned(),
+        Some("none") => String::new(),
+        _ => "\u{2022}".to_owned(),
+    }
+}
+
+fn alpha_list_marker(index: usize, uppercase: bool) -> String {
+    if index == 0 {
+        return "0".to_owned();
+    }
+
+    let mut value = index;
+    let mut out = String::new();
+    while value > 0 {
+        let rem = (value - 1) % 26;
+        let rem_u8 = u8::try_from(rem).unwrap_or(0);
+        let base = if uppercase { b'A' } else { b'a' };
+        out.insert(0, char::from(base + rem_u8));
+        value = (value - 1) / 26;
+    }
+    out
+}
+
+fn roman_list_marker(index: usize, uppercase: bool) -> String {
+    if index == 0 {
+        return "0".to_owned();
+    }
+
+    let mut value = index.min(3999);
+    let mut out = String::new();
+    let parts: &[(usize, &str)] = &[
+        (1000, "M"),
+        (900, "CM"),
+        (500, "D"),
+        (400, "CD"),
+        (100, "C"),
+        (90, "XC"),
+        (50, "L"),
+        (40, "XL"),
+        (10, "X"),
+        (9, "IX"),
+        (5, "V"),
+        (4, "IV"),
+        (1, "I"),
+    ];
+
+    for (weight, token) in parts {
+        while value >= *weight {
+            out.push_str(token);
+            value -= *weight;
+        }
+    }
+
+    if uppercase {
+        out
+    } else {
+        out.to_ascii_lowercase()
+    }
 }
 
 fn render_img(ui: &mut egui::Ui, el: &HtmlElement, ctx: &mut Ctx<'_>, style: &StyleProps) {
@@ -1704,6 +2056,7 @@ fn render_img(ui: &mut egui::Ui, el: &HtmlElement, ctx: &mut Ctx<'_>, style: &St
         .as_deref()
         .and_then(|value| resolve_link(ctx.base_url, value));
     let fallback_width = ui.available_width().clamp(120.0, 420.0);
+    let available_width = ui.available_width().max(1.0);
 
     let mut intrinsic_width: Option<f32> = None;
     let mut intrinsic_height: Option<f32> = None;
@@ -1716,6 +2069,11 @@ fn render_img(ui: &mut egui::Ui, el: &HtmlElement, ctx: &mut Ctx<'_>, style: &St
 
     let mut width = style
         .width
+        .or_else(|| {
+            style
+                .width_percent
+                .map(|percent| available_width * (percent / 100.0))
+        })
         .or_else(|| attr(el, "width").and_then(parse_length))
         .or(intrinsic_width)
         .unwrap_or(fallback_width)
@@ -1727,6 +2085,12 @@ fn render_img(ui: &mut egui::Ui, el: &HtmlElement, ctx: &mut Ctx<'_>, style: &St
         .or(intrinsic_height)
         .unwrap_or((width * 0.55).max(60.0))
         .max(30.0);
+    if let Some(min_height) = style.min_height {
+        height = height.max(min_height.max(0.0));
+    }
+    if let Some(max_height) = style.max_height {
+        height = height.min(max_height.max(30.0));
+    }
 
     if style.width.is_some() && style.height.is_none() {
         if let (Some(iw), Some(ih)) = (intrinsic_width, intrinsic_height) {
@@ -1744,7 +2108,15 @@ fn render_img(ui: &mut egui::Ui, el: &HtmlElement, ctx: &mut Ctx<'_>, style: &St
 
     if let Some(url) = resolved.as_deref() {
         if let Some(render_image) = ctx.resources.images.get(url) {
-            ui.image((render_image.texture_id, egui::vec2(width, height)));
+            let mut image =
+                egui::Image::new((render_image.texture_id, egui::vec2(width, height)));
+            if let Some(radius) = style.border_radius {
+                image = image.corner_radius(radius.clamp(0.0, 255.0).round() as u8);
+            }
+            if effective_opacity(style) < 0.999 {
+                image = image.tint(color_with_effective_opacity(egui::Color32::WHITE, style));
+            }
+            ui.add(image);
             let margin_bottom = style.margin.bottom_or(0.0).max(0.0);
             if margin_bottom > 0.0 {
                 ui.add_space(margin_bottom);
@@ -1755,11 +2127,18 @@ fn render_img(ui: &mut egui::Ui, el: &HtmlElement, ctx: &mut Ctx<'_>, style: &St
         }
     }
 
-    let fill = style.bg.unwrap_or(egui::Color32::from_rgb(21, 26, 34));
+    let fill = color_with_effective_opacity(
+        style.bg.unwrap_or(egui::Color32::from_rgb(21, 26, 34)),
+        style,
+    );
 
     egui::Frame::NONE
         .fill(fill)
-        .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(66, 78, 95)))
+        .stroke(egui::Stroke::new(
+            1.0,
+            color_with_effective_opacity(egui::Color32::from_rgb(66, 78, 95), style),
+        ))
+        .corner_radius(style.border_radius.unwrap_or(0.0).clamp(0.0, 255.0).round() as u8)
         .inner_margin(style.padding.max_or(10.0).max(0.0))
         .show(ui, |ui| {
             ui.set_min_size(egui::vec2(width, height));
@@ -1788,9 +2167,15 @@ fn render_img(ui: &mut egui::Ui, el: &HtmlElement, ctx: &mut Ctx<'_>, style: &St
 }
 
 fn render_text(ui: &mut egui::Ui, text: &str, style: &StyleProps, effects: TextEffects) {
+    let wrap_mode = match effective_white_space_mode(style, &effects) {
+        WhiteSpaceMode::NoWrap | WhiteSpaceMode::Pre => egui::TextWrapMode::Extend,
+        WhiteSpaceMode::Normal | WhiteSpaceMode::PreWrap | WhiteSpaceMode::PreLine => {
+            egui::TextWrapMode::Wrap
+        }
+    };
     ui.add(
         egui::Label::new(build_rich_text(text.to_owned(), style, effects))
-            .wrap_mode(egui::TextWrapMode::Wrap),
+            .wrap_mode(wrap_mode),
     );
 }
 
@@ -1821,8 +2206,11 @@ fn render_input(
     inline_mode: bool,
 ) {
     let input_type = attr(el, "type").unwrap_or("text").to_ascii_lowercase();
+    let disabled = has_attr(el, "disabled") || has_attr(el, "inert");
+    let read_only = has_attr(el, "readonly");
+    let max_length = parse_usize_attr(el, "maxlength");
     if input_type == "hidden" {
-        if let (Some(_), Some(name)) = (ctx.form_stack.last(), attr(el, "name")) {
+        if !disabled && let (Some(_), Some(name)) = (ctx.form_stack.last(), attr(el, "name")) {
             let value = attr(el, "value").unwrap_or("").to_owned();
             set_active_form_field(ctx, name, Some(value));
         }
@@ -1856,7 +2244,13 @@ fn render_input(
     if let Some(max_width) = style.max_width {
         width = width.min(max_width.max(60.0));
     }
-    let height = style.height.unwrap_or(30.0).max(24.0);
+    let mut height = style.height.unwrap_or(30.0).max(24.0);
+    if let Some(min_height) = style.min_height {
+        height = height.max(min_height.max(0.0));
+    }
+    if let Some(max_height) = style.max_height {
+        height = height.min(max_height.max(24.0));
+    }
 
     let text_control_style = tune_text_control_style(style);
     let state_key = form_control_state_key(ctx.base_url, el, &input_type);
@@ -1868,9 +2262,16 @@ fn render_input(
                 value.clone()
             };
             let rich = build_rich_text(label, style, TextEffects::default());
-            let response = with_form_control_visuals(ui, style, |ui| {
-                ui.add_sized([width, height], egui::Button::new(rich))
-            });
+            let response = ui
+                .add_enabled_ui(!disabled, |ui| {
+                    with_form_control_visuals(ui, style, |ui| {
+                        ui.add_sized([width, height], egui::Button::new(rich))
+                    })
+                })
+                .inner;
+            if disabled {
+                return;
+            }
             if response.clicked() {
                 emit_inline_event(ctx, DomEventKind::Click, el, "onclick");
                 if input_type == "submit" {
@@ -1894,15 +2295,25 @@ fn render_input(
                     _ => None,
                 })
                 .unwrap_or(default_checked);
-            let response = if input_type == "radio" {
-                let response = ui.radio(checked, value.clone());
-                if response.clicked() {
-                    checked = true;
+            let response = ui
+                .add_enabled_ui(!disabled, |ui| {
+                    if input_type == "radio" {
+                        let response = ui.radio(checked, value.clone());
+                        if response.clicked() {
+                            checked = true;
+                        }
+                        response
+                    } else {
+                        ui.checkbox(&mut checked, value.clone())
+                    }
+                })
+                .inner;
+            if disabled {
+                if let Some(name) = attr(el, "name") {
+                    set_active_form_field(ctx, name, None);
                 }
-                response
-            } else {
-                ui.checkbox(&mut checked, value.clone())
-            };
+                return;
+            }
             ctx.form_state.insert(
                 state_key.clone(),
                 if checked { "1" } else { "0" }.to_owned(),
@@ -1935,23 +2346,36 @@ fn render_input(
             if input_type == "password" {
                 editor = editor.password(true);
             }
+            editor = editor.interactive(!disabled && !read_only);
             if let Some(color) = text_control_style.color {
                 editor = editor.text_color(color);
             }
-            let response = with_form_control_visuals(ui, &text_control_style, |ui| {
-                ui.add_sized([width, height], editor)
-            });
-            if let Some(name) = attr(el, "name") {
+            let response = ui
+                .add_enabled_ui(!disabled, |ui| {
+                    with_form_control_visuals(ui, &text_control_style, |ui| {
+                        ui.add_sized([width, height], editor)
+                    })
+                })
+                .inner;
+            truncate_text_to_max_chars(&mut text, max_length);
+            if let Some(name) = attr(el, "name")
+                && !disabled
+            {
                 set_active_form_field(ctx, name, Some(text.clone()));
             }
-            if response.changed() {
+            if disabled {
+                if let Some(name) = attr(el, "name") {
+                    set_active_form_field(ctx, name, None);
+                }
+            } else if response.changed() {
                 emit_inline_event(ctx, DomEventKind::Input, el, "oninput");
             }
-            if response.clicked() {
+            if !disabled && response.clicked() {
                 emit_inline_event(ctx, DomEventKind::Click, el, "onclick");
             }
-            let pressed_enter =
-                response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
+            let pressed_enter = !disabled
+                && response.lost_focus()
+                && ui.input(|input| input.key_pressed(egui::Key::Enter));
             if pressed_enter {
                 submit_active_form(ctx, None, None, Some(el));
             }
@@ -1980,6 +2404,7 @@ fn render_button(
     } else {
         text
     };
+    let disabled = has_attr(el, "disabled") || has_attr(el, "inert");
     let button_type = attr(el, "type")
         .map(|value| value.trim().to_ascii_lowercase())
         .filter(|value| !value.is_empty())
@@ -2000,13 +2425,26 @@ fn render_button(
     if let Some(max_width) = style.max_width {
         width = width.min(max_width.max(60.0));
     }
-    let height = style.height.unwrap_or(30.0).max(24.0);
+    let mut height = style.height.unwrap_or(30.0).max(24.0);
+    if let Some(min_height) = style.min_height {
+        height = height.max(min_height.max(0.0));
+    }
+    if let Some(max_height) = style.max_height {
+        height = height.min(max_height.max(24.0));
+    }
 
     let mut render_control = |ui: &mut egui::Ui| {
         let rich = build_rich_text(label.clone(), style, TextEffects::default());
-        let response = with_form_control_visuals(ui, style, |ui| {
-            ui.add_sized([width, height], egui::Button::new(rich))
-        });
+        let response = ui
+            .add_enabled_ui(!disabled, |ui| {
+                with_form_control_visuals(ui, style, |ui| {
+                    ui.add_sized([width, height], egui::Button::new(rich))
+                })
+            })
+            .inner;
+        if disabled {
+            return;
+        }
         if response.clicked() {
             emit_inline_event(ctx, DomEventKind::Click, el, "onclick");
             if button_type != "button" {
@@ -2035,6 +2473,10 @@ fn render_textarea(
     style: &StyleProps,
     inline_mode: bool,
 ) {
+    let disabled = has_attr(el, "disabled") || has_attr(el, "inert");
+    let read_only = has_attr(el, "readonly");
+    let max_length = parse_usize_attr(el, "maxlength");
+    let placeholder = attr(el, "placeholder").unwrap_or("").to_owned();
     let value = attr(el, "value")
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| collect_text(&el.children));
@@ -2062,7 +2504,13 @@ fn render_textarea(
     if let Some(max_width) = style.max_width {
         width = width.min(max_width.max(100.0));
     }
-    let height = style.height.unwrap_or(rows * 22.0 + 8.0).max(40.0);
+    let mut height = style.height.unwrap_or(rows * 22.0 + 8.0).max(40.0);
+    if let Some(min_height) = style.min_height {
+        height = height.max(min_height.max(0.0));
+    }
+    if let Some(max_height) = style.max_height {
+        height = height.min(max_height.max(40.0));
+    }
 
     let text_control_style = tune_text_control_style(style);
     let state_key = form_control_state_key(ctx.base_url, el, "textarea");
@@ -2073,19 +2521,34 @@ fn render_textarea(
             .cloned()
             .unwrap_or_else(|| value.clone());
         let mut editor = egui::TextEdit::multiline(&mut text).clip_text(false);
+        if !placeholder.is_empty() {
+            editor = editor.hint_text(placeholder.clone());
+        }
+        editor = editor.interactive(!disabled && !read_only);
         if let Some(color) = text_control_style.color {
             editor = editor.text_color(color);
         }
-        let response = with_form_control_visuals(ui, &text_control_style, |ui| {
-            ui.add_sized([width, height], editor)
-        });
-        if let Some(name) = attr(el, "name") {
+        let response = ui
+            .add_enabled_ui(!disabled, |ui| {
+                with_form_control_visuals(ui, &text_control_style, |ui| {
+                    ui.add_sized([width, height], editor)
+                })
+            })
+            .inner;
+        truncate_text_to_max_chars(&mut text, max_length);
+        if let Some(name) = attr(el, "name")
+            && !disabled
+        {
             set_active_form_field(ctx, name, Some(text.clone()));
         }
-        if response.changed() {
+        if disabled {
+            if let Some(name) = attr(el, "name") {
+                set_active_form_field(ctx, name, None);
+            }
+        } else if response.changed() {
             emit_inline_event(ctx, DomEventKind::Input, el, "oninput");
         }
-        if response.clicked() {
+        if !disabled && response.clicked() {
             emit_inline_event(ctx, DomEventKind::Click, el, "onclick");
         }
         ctx.form_state.insert(state_key.clone(), text);
@@ -2106,8 +2569,12 @@ fn render_select(
     style: &StyleProps,
     inline_mode: bool,
 ) {
-    let mut selected = None;
-    let mut first = None;
+    let disabled = has_attr(el, "disabled") || has_attr(el, "inert");
+    let multiple = has_attr(el, "multiple");
+    let mut selected_labels = Vec::new();
+    let mut selected_values = Vec::new();
+    let mut first_label = None;
+    let mut first_value = None;
 
     for child in &el.children {
         let HtmlNode::Element(option) = child else {
@@ -2116,17 +2583,61 @@ fn render_select(
         if option.tag != "option" {
             continue;
         }
-        let text = collapse_whitespace(&collect_text(&option.children));
-        if first.is_none() {
-            first = Some(text.clone());
+        if has_attr(option, "disabled") {
+            continue;
         }
-        if attr(option, "selected").is_some() {
-            selected = Some(text);
-            break;
+
+        let label = attr(option, "label")
+            .map(collapse_whitespace)
+            .filter(|text| !text.is_empty())
+            .unwrap_or_else(|| collapse_whitespace(&collect_text(&option.children)));
+        if label.is_empty() {
+            continue;
+        }
+
+        let value = attr(option, "value")
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| label.clone());
+
+        if first_label.is_none() {
+            first_label = Some(label.clone());
+            first_value = Some(value.clone());
+        }
+
+        if has_attr(option, "selected") {
+            selected_labels.push(label);
+            selected_values.push(value);
+            if !multiple {
+                break;
+            }
         }
     }
 
-    let label = selected.or(first).unwrap_or_else(|| "Select".to_owned());
+    let label = if multiple {
+        if selected_labels.is_empty() {
+            first_label.clone().unwrap_or_else(|| "Select".to_owned())
+        } else {
+            selected_labels.join(", ")
+        }
+    } else {
+        selected_labels
+            .first()
+            .cloned()
+            .or(first_label.clone())
+            .unwrap_or_else(|| "Select".to_owned())
+    };
+    let field_value = if multiple {
+        if selected_values.is_empty() {
+            first_value
+        } else {
+            Some(selected_values.join(","))
+        }
+    } else {
+        selected_values.first().cloned().or(first_value)
+    };
+
     let available_width = ui.available_width().max(1.0);
     let mut width = style
         .width
@@ -2143,24 +2654,40 @@ fn render_select(
     if let Some(max_width) = style.max_width {
         width = width.min(max_width.max(80.0));
     }
-    let height = style.height.unwrap_or(30.0).max(24.0);
+    let mut height = style.height.unwrap_or(30.0).max(24.0);
+    if let Some(min_height) = style.min_height {
+        height = height.max(min_height.max(0.0));
+    }
+    if let Some(max_height) = style.max_height {
+        height = height.min(max_height.max(24.0));
+    }
     let control_style = tune_text_control_style(style);
     let mut render_control = |ui: &mut egui::Ui| {
-        let response = with_form_control_visuals(ui, &control_style, |ui| {
-            let text = format!("{label} \u{25BE}");
-            ui.add_sized(
-                [width, height],
-                egui::Button::new(build_rich_text(
-                    text,
-                    &control_style,
-                    TextEffects::default(),
-                )),
-            )
-        });
-        if let Some(name) = attr(el, "name") {
-            set_active_form_field(ctx, name, Some(label.clone()));
+        let response = ui
+            .add_enabled_ui(!disabled, |ui| {
+                with_form_control_visuals(ui, &control_style, |ui| {
+                    let text = format!("{label} \u{25BE}");
+                    ui.add_sized(
+                        [width, height],
+                        egui::Button::new(build_rich_text(
+                            text,
+                            &control_style,
+                            TextEffects::default(),
+                        )),
+                    )
+                })
+            })
+            .inner;
+        if let Some(name) = attr(el, "name")
+            && !disabled
+        {
+            set_active_form_field(ctx, name, field_value.clone());
         }
-        if response.clicked() {
+        if disabled {
+            if let Some(name) = attr(el, "name") {
+                set_active_form_field(ctx, name, None);
+            }
+        } else if response.clicked() {
             emit_inline_event(ctx, DomEventKind::Input, el, "oninput");
             emit_inline_event(ctx, DomEventKind::Click, el, "onclick");
         }
@@ -2198,11 +2725,18 @@ fn with_form_control_visuals<R>(
     style: &StyleProps,
     add_contents: impl FnOnce(&mut egui::Ui) -> R,
 ) -> R {
-    let fg_color = style.color.unwrap_or(egui::Color32::from_rgb(31, 31, 31));
-    let bg_color = style.bg.unwrap_or(egui::Color32::WHITE);
-    let border_color = style
-        .border_color
-        .unwrap_or(egui::Color32::from_rgb(143, 143, 143));
+    let fg_color = color_with_effective_opacity(
+        style.color.unwrap_or(egui::Color32::from_rgb(31, 31, 31)),
+        style,
+    );
+    let bg_color = color_with_effective_opacity(style.bg.unwrap_or(egui::Color32::WHITE), style);
+    let border_color = color_with_effective_opacity(
+        style
+            .border_color
+            .unwrap_or(egui::Color32::from_rgb(143, 143, 143)),
+        style,
+    );
+    let corner_radius = style.border_radius.unwrap_or(0.0).clamp(0.0, 255.0).round() as u8;
 
     ui.scope(|ui| {
         let visuals = ui.visuals_mut();
@@ -2215,12 +2749,16 @@ fn with_form_control_visuals<R>(
         visuals.widgets.noninteractive.bg_fill = bg_color;
         visuals.widgets.noninteractive.fg_stroke.color = fg_color;
         visuals.widgets.noninteractive.bg_stroke.color = border_color;
+        visuals.widgets.noninteractive.corner_radius = corner_radius.into();
         visuals.widgets.hovered.bg_fill = bg_color;
         visuals.widgets.hovered.fg_stroke.color = fg_color;
         visuals.widgets.hovered.bg_stroke.color = border_color;
+        visuals.widgets.hovered.corner_radius = corner_radius.into();
         visuals.widgets.active.bg_fill = bg_color;
         visuals.widgets.active.fg_stroke.color = fg_color;
         visuals.widgets.active.bg_stroke.color = border_color;
+        visuals.widgets.active.corner_radius = corner_radius.into();
+        visuals.widgets.inactive.corner_radius = corner_radius.into();
         visuals.override_text_color = Some(fg_color);
         add_contents(ui)
     })
@@ -2230,14 +2768,21 @@ fn with_form_control_visuals<R>(
 fn apply_html_alignment_attr(el: &HtmlElement, style: &StyleProps) -> StyleProps {
     let mut out = style.clone();
     if let Some(align) = attr(el, "align") {
-        out.text_align = match align.trim().to_ascii_lowercase().as_str() {
-            "center" | "middle" => Some(TextAlign::Center),
-            "right" | "end" => Some(TextAlign::Right),
-            "left" | "start" => Some(TextAlign::Left),
-            _ => out.text_align,
-        };
+        if let Some(text_align) = parse_html_align_value(align) {
+            out.text_align = Some(text_align);
+        }
     }
     out
+}
+
+fn parse_html_align_value(value: &str) -> Option<TextAlign> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "center" | "middle" => Some(TextAlign::Center),
+        "right" | "end" => Some(TextAlign::Right),
+        "left" | "start" => Some(TextAlign::Left),
+        "justify" => Some(TextAlign::Justify),
+        _ => None,
+    }
 }
 
 fn parse_html_dimension(value: &str, reference: f32) -> Option<f32> {
@@ -2265,11 +2810,7 @@ fn add_default_bottom_spacing(ui: &mut egui::Ui, style: &StyleProps, fallback: f
 }
 
 fn build_rich_text(input: String, style: &StyleProps, effects: TextEffects) -> egui::RichText {
-    let mut out = if effects.mono {
-        input
-    } else {
-        collapse_whitespace(&input)
-    };
+    let mut out = normalize_text_for_render(&input, style, &effects);
     let script = effects.script.or(style.script);
     if matches!(script, Some(ScriptPosition::Sub)) {
         out = format!("_{out}");
@@ -2290,7 +2831,7 @@ fn build_rich_text(input: String, style: &StyleProps, effects: TextEffects) -> e
         rich = rich.size(v);
     }
     if let Some(v) = style.color {
-        rich = rich.color(v);
+        rich = rich.color(color_with_effective_opacity(v, style));
     }
     if effects.strong || style.bold.unwrap_or(false) {
         rich = rich.strong();
@@ -2318,10 +2859,77 @@ fn build_rich_text(input: String, style: &StyleProps, effects: TextEffects) -> e
         style.bg
     };
     if let Some(bg) = mark_color {
-        rich = rich.background_color(bg);
+        rich = rich.background_color(color_with_effective_opacity(bg, style));
     }
 
     rich
+}
+
+fn normalize_text_for_render(input: &str, style: &StyleProps, effects: &TextEffects) -> String {
+    let mut out = match effective_white_space_mode(style, effects) {
+        WhiteSpaceMode::Normal | WhiteSpaceMode::NoWrap => collapse_whitespace(input),
+        WhiteSpaceMode::Pre | WhiteSpaceMode::PreWrap => input.to_owned(),
+        WhiteSpaceMode::PreLine => collapse_whitespace_preserve_newlines(input),
+    };
+
+    match style.text_transform.unwrap_or(TextTransform::None) {
+        TextTransform::None => {}
+        TextTransform::Uppercase => out = out.to_uppercase(),
+        TextTransform::Lowercase => out = out.to_lowercase(),
+        TextTransform::Capitalize => out = capitalize_words(&out),
+    }
+
+    out
+}
+
+fn effective_white_space_mode(style: &StyleProps, effects: &TextEffects) -> WhiteSpaceMode {
+    style.white_space.unwrap_or(if effects.mono {
+        WhiteSpaceMode::Pre
+    } else {
+        WhiteSpaceMode::Normal
+    })
+}
+
+fn collapse_whitespace_preserve_newlines(input: &str) -> String {
+    let mut lines = Vec::new();
+    for line in input.lines() {
+        lines.push(collapse_whitespace(line));
+    }
+    lines.join("\n")
+}
+
+fn capitalize_words(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut capitalize_next = true;
+    for ch in input.chars() {
+        if ch.is_alphanumeric() {
+            if capitalize_next {
+                for up in ch.to_uppercase() {
+                    out.push(up);
+                }
+                capitalize_next = false;
+            } else {
+                out.push(ch);
+            }
+        } else {
+            capitalize_next = ch.is_whitespace();
+            out.push(ch);
+        }
+    }
+    out
+}
+
+fn effective_opacity(style: &StyleProps) -> f32 {
+    style.opacity.unwrap_or(1.0).clamp(0.0, 1.0)
+}
+
+fn color_with_effective_opacity(color: egui::Color32, style: &StyleProps) -> egui::Color32 {
+    let opacity = effective_opacity(style);
+    if opacity >= 0.999 {
+        return color;
+    }
+    let alpha = ((color.a() as f32) * opacity).round().clamp(0.0, 255.0) as u8;
+    egui::Color32::from_rgba_premultiplied(color.r(), color.g(), color.b(), alpha)
 }
 
 fn is_likely_screen_reader_only(style: &StyleProps) -> bool {
@@ -2345,6 +2953,7 @@ fn style_suppresses_rendering(style: &StyleProps) -> bool {
 
 fn element_has_hidden_semantics(el: &HtmlElement) -> bool {
     attr(el, "hidden").is_some()
+        || attr(el, "inert").is_some()
         || attr(el, "aria-hidden")
             .is_some_and(|value| value.eq_ignore_ascii_case("true") || value == "1")
 }
@@ -2384,7 +2993,11 @@ fn render_box(ui: &mut egui::Ui, style: &StyleProps, body: impl FnOnce(&mut egui
     let border_right = style.border_width.right_or(0.0).max(0.0);
     let border_bottom = style.border_width.bottom_or(0.0).max(0.0);
     let border_left = style.border_width.left_or(0.0).max(0.0);
-    let border_color = style.border_color.unwrap_or(egui::Color32::GRAY);
+    let border_color = color_with_effective_opacity(
+        style.border_color.unwrap_or(egui::Color32::GRAY),
+        style,
+    );
+    let border_radius = style.border_radius.unwrap_or(0.0).clamp(0.0, 255.0);
 
     if margin_top > 0.0 {
         ui.add_space(margin_top);
@@ -2434,15 +3047,26 @@ fn render_box(ui: &mut egui::Ui, style: &StyleProps, body: impl FnOnce(&mut egui
         }
     }
 
-    let height = if inline_layout {
+    let mut height = if inline_layout {
         0.0
     } else {
         style.height.unwrap_or(0.0).max(0.0)
     };
+    if !inline_layout {
+        if let Some(min_height) = style.min_height {
+            height = height.max(min_height.max(0.0));
+        }
+        if let Some(max_height) = style.max_height {
+            height = height.min(max_height.max(0.0));
+        }
+    }
 
     let mut frame = egui::Frame::NONE;
     if let Some(bg) = style.bg {
-        frame = frame.fill(bg);
+        frame = frame.fill(color_with_effective_opacity(bg, style));
+    }
+    if border_radius > 0.0 {
+        frame = frame.corner_radius(border_radius.round() as u8);
     }
 
     let horizontal_align = match style.text_align.unwrap_or(TextAlign::Left) {
@@ -2514,6 +3138,7 @@ fn render_box(ui: &mut egui::Ui, style: &StyleProps, body: impl FnOnce(&mut egui
             border_bottom,
             border_left,
             border_color,
+            border_radius,
         );
     }
 
@@ -2530,6 +3155,7 @@ fn paint_box_border(
     bottom: f32,
     left: f32,
     color: egui::Color32,
+    border_radius: f32,
 ) {
     if rect.width() <= 0.0 || rect.height() <= 0.0 {
         return;
@@ -2539,6 +3165,20 @@ fn paint_box_border(
     let right = right.clamp(0.0, rect.width());
     let bottom = bottom.clamp(0.0, rect.height());
     let left = left.clamp(0.0, rect.width());
+
+    let symmetric_border = top > 0.0
+        && (top - right).abs() <= 0.001
+        && (top - bottom).abs() <= 0.001
+        && (top - left).abs() <= 0.001;
+    if border_radius > 0.0 && symmetric_border {
+        painter.rect_stroke(
+            rect,
+            border_radius.round() as u8,
+            egui::Stroke::new(top, color),
+            egui::StrokeKind::Middle,
+        );
+        return;
+    }
 
     if top > 0.0 {
         let top_rect = egui::Rect::from_min_max(rect.min, egui::pos2(rect.max.x, rect.min.y + top));
@@ -2611,6 +3251,107 @@ fn render_flex(ui: &mut egui::Ui, el: &HtmlElement, ctx: &mut Ctx<'_>, style: &S
     });
 }
 
+fn apply_html_presentational_attributes(el: &HtmlElement, style: &mut StyleProps) {
+    if style.text_align.is_none()
+        && let Some(align) = attr(el, "align").and_then(parse_html_align_value)
+    {
+        style.text_align = Some(align);
+    }
+
+    if style.bg.is_none()
+        && let Some(bg) = attr(el, "bgcolor").and_then(parse_color)
+    {
+        style.bg = Some(bg);
+    }
+
+    if style.color.is_none()
+        && let Some(color) = attr(el, "color")
+            .or_else(|| attr(el, "text"))
+            .and_then(parse_color)
+    {
+        style.color = Some(color);
+    }
+
+    if style.border_color.is_none()
+        && let Some(border_color) = attr(el, "bordercolor").and_then(parse_color)
+    {
+        style.border_color = Some(border_color);
+    }
+
+    if style.border_width.max_or(0.0) <= 0.0
+        && let Some(border_width) = attr(el, "border")
+            .and_then(parse_html_length)
+            .map(|value| value.max(0.0))
+    {
+        style.border_width = Edges::all(border_width);
+    }
+
+    if style.width.is_none()
+        && style.width_percent.is_none()
+        && let Some(width) = attr(el, "width")
+    {
+        if let Some(percent) = parse_percentage(width) {
+            style.width_percent = Some(percent);
+        } else if let Some(px) = parse_html_length(width) {
+            style.width = Some(px.max(1.0));
+        }
+    }
+
+    if style.height.is_none()
+        && let Some(height) = attr(el, "height")
+            .and_then(parse_html_length)
+            .map(|value| value.max(1.0))
+    {
+        style.height = Some(height);
+    }
+
+    if style.font_family.is_none()
+        && let Some(font_family) = attr(el, "face").and_then(parse_font_family)
+    {
+        style.font_family = Some(font_family);
+    }
+
+    if style.font_size.is_none()
+        && let Some(font_size) = attr(el, "size").and_then(parse_legacy_font_size)
+    {
+        style.font_size = Some(font_size);
+    }
+}
+
+fn parse_legacy_font_size(value: &str) -> Option<f32> {
+    let raw = value.trim();
+    if raw.is_empty() {
+        return None;
+    }
+
+    if let Some(relative) = raw.strip_prefix('+') {
+        let delta = relative.trim().parse::<i32>().ok()?;
+        let resolved = (3 + delta).clamp(1, 7);
+        return Some(legacy_font_size_px(resolved));
+    }
+
+    if let Some(relative) = raw.strip_prefix('-') {
+        let delta = relative.trim().parse::<i32>().ok()?;
+        let resolved = (3 - delta).clamp(1, 7);
+        return Some(legacy_font_size_px(resolved));
+    }
+
+    let absolute = raw.parse::<i32>().ok()?.clamp(1, 7);
+    Some(legacy_font_size_px(absolute))
+}
+
+fn legacy_font_size_px(value: i32) -> f32 {
+    match value {
+        1 => 10.0,
+        2 => 13.0,
+        3 => 16.0,
+        4 => 18.0,
+        5 => 24.0,
+        6 => 32.0,
+        _ => 48.0,
+    }
+}
+
 fn style_for(
     el: &HtmlElement,
     sheet: &StyleSheet,
@@ -2653,6 +3394,9 @@ fn style_for(
         }
     }
 
+    apply_raw_css_aliases(&mut style);
+    apply_html_presentational_attributes(el, &mut style);
+
     if style.color.is_none() {
         style.color = inherited.color;
     }
@@ -2686,6 +3430,12 @@ fn style_for(
     if style.line_height.is_none() {
         style.line_height = inherited.line_height;
     }
+    if style.text_transform.is_none() {
+        style.text_transform = inherited.text_transform;
+    }
+    if style.white_space.is_none() {
+        style.white_space = inherited.white_space;
+    }
     if let Some(parent_opacity) = inherited.opacity {
         let own_opacity = style.opacity.unwrap_or(1.0);
         style.opacity = Some((parent_opacity * own_opacity).clamp(0.0, 1.0));
@@ -2711,13 +3461,19 @@ fn apply_declaration_with_cascade(
     style: &mut StyleProps,
     priorities: &mut StylePriority,
 ) {
-    if declaration.value.eq_ignore_ascii_case("inherit")
-        && apply_inherit_keyword(&declaration.name, priority, style, priorities)
-    {
-        return;
+    if declaration.value.eq_ignore_ascii_case("inherit") {
+        let _ = apply_inherit_keyword(&declaration.name, priority, style, priorities);
+    } else {
+        apply_style_with_priority(&declaration.parsed, priority, style, priorities);
     }
 
-    apply_style_with_priority(&declaration.parsed, priority, style, priorities);
+    apply_raw_css_property_with_priority(
+        declaration.name.as_str(),
+        declaration.value.as_str(),
+        priority,
+        style,
+        priorities,
+    );
 }
 
 fn apply_inherit_keyword(
@@ -2784,6 +3540,24 @@ fn apply_inherit_keyword(
             apply_cascade_value(
                 &mut style.line_height,
                 &mut priorities.line_height,
+                None,
+                priority,
+            );
+            true
+        }
+        "text-transform" => {
+            apply_cascade_value(
+                &mut style.text_transform,
+                &mut priorities.text_transform,
+                None,
+                priority,
+            );
+            true
+        }
+        "white-space" => {
+            apply_cascade_value(
+                &mut style.white_space,
+                &mut priorities.white_space,
                 None,
                 priority,
             );
@@ -2933,6 +3707,22 @@ fn apply_style_with_priority(
     if incoming.gap.is_some() {
         apply_cascade_value(&mut style.gap, &mut priorities.gap, incoming.gap, priority);
     }
+    if incoming.text_transform.is_some() {
+        apply_cascade_value(
+            &mut style.text_transform,
+            &mut priorities.text_transform,
+            incoming.text_transform,
+            priority,
+        );
+    }
+    if incoming.white_space.is_some() {
+        apply_cascade_value(
+            &mut style.white_space,
+            &mut priorities.white_space,
+            incoming.white_space,
+            priority,
+        );
+    }
     if incoming.width.is_some() {
         apply_cascade_value(
             &mut style.width,
@@ -2970,6 +3760,22 @@ fn apply_style_with_priority(
             &mut style.height,
             &mut priorities.height,
             incoming.height,
+            priority,
+        );
+    }
+    if incoming.min_height.is_some() {
+        apply_cascade_value(
+            &mut style.min_height,
+            &mut priorities.min_height,
+            incoming.min_height,
+            priority,
+        );
+    }
+    if incoming.max_height.is_some() {
+        apply_cascade_value(
+            &mut style.max_height,
+            &mut priorities.max_height,
+            incoming.max_height,
             priority,
         );
     }
@@ -3052,6 +3858,28 @@ fn apply_style_with_priority(
             incoming.border_color,
             priority,
         );
+    }
+    if incoming.border_radius.is_some() {
+        apply_cascade_value(
+            &mut style.border_radius,
+            &mut priorities.border_radius,
+            incoming.border_radius,
+            priority,
+        );
+    }
+}
+
+fn apply_raw_css_property_with_priority(
+    name: &str,
+    value: &str,
+    priority: CascadePriority,
+    style: &mut StyleProps,
+    priorities: &mut StylePriority,
+) {
+    let existing = priorities.raw_css.get(name).copied();
+    if should_apply_priority(priority, existing) {
+        style.raw_css.insert(name.to_owned(), value.to_owned());
+        priorities.raw_css.insert(name.to_owned(), priority);
     }
 }
 
@@ -3251,7 +4079,20 @@ fn collect_subresources_from_nodes(
                     scripts.insert(src);
                 }
             }
+            "video" => {
+                if let Some(poster) =
+                    attr(el, "poster").and_then(|value| resolve_link(base_url, value))
+                {
+                    images.insert(poster);
+                }
+            }
             _ => {}
+        }
+
+        if let Some(background) =
+            parse_background_resource_attr(el).and_then(|value| resolve_link(base_url, value))
+        {
+            images.insert(background);
         }
 
         collect_subresources_from_nodes(&el.children, base_url, stylesheets, images, scripts);
@@ -3522,6 +4363,24 @@ fn is_css_grouping_at_rule(selector: &str) -> bool {
         || lower.starts_with("@document")
 }
 
+fn supports_inherit_keyword(property_name: &str) -> bool {
+    matches!(
+        property_name,
+        "color"
+            | "font-size"
+            | "text-align"
+            | "font-family"
+            | "font-weight"
+            | "font-style"
+            | "text-decoration"
+            | "text-decoration-line"
+            | "vertical-align"
+            | "line-height"
+            | "text-transform"
+            | "white-space"
+    )
+}
+
 fn parse_declaration_entries(input: &str, source_order: &mut usize) -> Vec<CssDeclaration> {
     let mut out = Vec::new();
 
@@ -3545,7 +4404,9 @@ fn parse_declaration_entries(input: &str, source_order: &mut usize) -> Vec<CssDe
         }
 
         let parsed = parse_single_declaration(&name, value);
-        if parsed.is_empty() && !value.eq_ignore_ascii_case("inherit") {
+        let keep_inherit = value.eq_ignore_ascii_case("inherit") && supports_inherit_keyword(&name);
+        let keep_raw_property = is_mdn_reference_css_property(&name);
+        if parsed.is_empty() && !keep_inherit && !keep_raw_property {
             continue;
         }
 
@@ -3675,11 +4536,9 @@ fn find_css_top_level_colon(input: &str) -> Option<usize> {
 }
 
 fn parse_single_declaration(name: &str, value: &str) -> StyleProps {
-    let mut declaration = String::with_capacity(name.len() + value.len() + 1);
-    declaration.push_str(name);
-    declaration.push(':');
-    declaration.push_str(value);
-    parse_declarations(&declaration)
+    let mut out = StyleProps::default();
+    apply_named_declaration(name, value, &mut out);
+    out
 }
 
 fn strip_css_comments(css: &str) -> String {
@@ -3918,67 +4777,18 @@ fn normalize_selector_compound(input: &str) -> String {
         return String::new();
     }
 
-    let mut out = String::with_capacity(trimmed.len());
-    let bytes = trimmed.as_bytes();
-    let mut idx = 0_usize;
-    let mut in_single = false;
-    let mut in_double = false;
-    let mut in_attribute = false;
-    let mut attribute_quote: Option<u8> = None;
-
-    while idx < bytes.len() {
-        let byte = bytes[idx];
-
-        if in_single {
-            if byte == b'\\' && idx + 1 < bytes.len() {
-                idx = idx.saturating_add(2);
-                continue;
-            }
-            if byte == b'\'' {
-                in_single = false;
-            }
-            idx = idx.saturating_add(1);
-            continue;
-        }
-
-        if in_double {
-            if byte == b'\\' && idx + 1 < bytes.len() {
-                idx = idx.saturating_add(2);
-                continue;
-            }
-            if byte == b'"' {
-                in_double = false;
-            }
-            idx = idx.saturating_add(1);
-            continue;
-        }
-
-        if in_attribute {
-            if let Some(quote) = attribute_quote {
-                if byte == quote {
-                    attribute_quote = None;
-                }
-            } else if byte == b'\'' || byte == b'"' {
-                attribute_quote = Some(byte);
-            } else if byte == b']' {
-                in_attribute = false;
-            }
-            idx = idx.saturating_add(1);
-            continue;
-        }
-
-        match byte {
-            b'[' => in_attribute = true,
-            b':' => break,
-            b'\'' => in_single = true,
-            b'"' => in_double = true,
-            _ => out.push(byte as char),
-        }
-
-        idx = idx.saturating_add(1);
+    // Unsupported selectors should be ignored instead of broadened.
+    // Stripping unsupported fragments (e.g. :not(...), [attr]) can
+    // incorrectly apply hide/layout rules to unrelated elements.
+    if trimmed
+        .as_bytes()
+        .iter()
+        .any(|byte| matches!(*byte, b'[' | b':' | b'\\'))
+    {
+        return String::new();
     }
 
-    out.trim().to_owned()
+    trimmed.to_owned()
 }
 
 fn parse_simple_selector(input: &str) -> Option<SimpleSelector> {
@@ -4214,158 +5024,495 @@ fn parse_declarations(input: &str) -> StyleProps {
         let name = name_raw.trim().to_ascii_lowercase();
         let (value, _) = split_important(value_raw);
         let value = value.trim();
+        if name.is_empty() || value.is_empty() {
+            continue;
+        }
 
-        match name.as_str() {
-            "display" => {
-                if let Some(v) = parse_display(value) {
-                    out.display = Some(v);
-                }
-            }
-            "visibility" => {
-                if let Some(v) = parse_visibility_hidden(value) {
-                    out.visibility_hidden = Some(v);
-                }
-            }
-            "opacity" => {
-                if let Some(v) = parse_opacity(value) {
-                    out.opacity = Some(v);
-                }
-            }
-            "text-align" => {
-                if let Some(v) = parse_text_align(value) {
-                    out.text_align = Some(v);
-                }
-            }
-            "color" => {
-                if let Some(v) = parse_color(value) {
-                    out.color = Some(v);
-                }
-            }
-            "background" | "background-color" => {
-                if let Some(v) = parse_color(value) {
-                    out.bg = Some(v);
-                }
-            }
-            "font-size" => {
-                if let Some(v) = parse_length(value) {
-                    out.font_size = Some(v.max(6.0));
-                }
-            }
-            "font-family" => {
-                if let Some(v) = parse_font_family(value) {
-                    out.font_family = Some(v);
-                }
-            }
-            "font" => {
-                apply_font_shorthand(value, &mut out);
-            }
-            "line-height" => {
-                if let Some(v) = parse_line_height(value) {
-                    out.line_height = Some(v.max(0.0));
-                }
-            }
-            "flex-direction" => {
-                if let Some(v) = parse_flex_direction(value) {
-                    out.flex_direction = Some(v);
-                }
-            }
-            "justify-content" => {
-                if let Some(v) = parse_justify_content(value) {
-                    out.justify_content = Some(v);
-                }
-            }
-            "align-items" => {
-                if let Some(v) = parse_align_items(value) {
-                    out.align_items = Some(v);
-                }
-            }
-            "gap" | "row-gap" | "column-gap" => {
-                if let Some(v) = parse_length(value) {
-                    out.gap = Some(v.max(0.0));
-                }
-            }
-            "font-weight" => {
-                if let Some(v) = parse_font_weight(value) {
-                    out.bold = Some(v);
-                }
-            }
-            "font-style" => {
-                if let Some(v) = parse_font_style(value) {
-                    out.italic = Some(v);
-                }
-            }
-            "text-decoration" | "text-decoration-line" => {
-                apply_text_decoration(value, &mut out);
-            }
-            "vertical-align" => {
-                if let Some(v) = parse_vertical_align(value) {
-                    out.script = Some(v);
-                }
-            }
-            "width" => {
-                if let Some(v) = parse_length(value) {
-                    out.width = Some(v.max(1.0));
-                } else if let Some(percent) = parse_percentage(value) {
-                    out.width_percent = Some(percent);
-                }
-            }
-            "height" => {
-                if let Some(v) = parse_length(value) {
-                    out.height = Some(v.max(1.0));
-                }
-            }
-            "min-width" => {
-                if let Some(v) = parse_length(value) {
-                    out.min_width = Some(v.max(0.0));
-                }
-            }
-            "max-width" => {
-                if let Some(v) = parse_length(value) {
-                    out.max_width = Some(v.max(0.0));
-                }
-            }
-            "margin" => {
-                if let Some(v) = parse_margin_edges(value) {
-                    out.margin.apply(&v.non_negative());
-                }
-            }
-            "margin-top" => set_margin_edge_value(&mut out.margin.top, value),
-            "margin-right" => set_margin_edge_value(&mut out.margin.right, value),
-            "margin-bottom" => set_margin_edge_value(&mut out.margin.bottom, value),
-            "margin-left" => set_margin_edge_value(&mut out.margin.left, value),
-            "padding" => {
-                if let Some(v) = parse_edges(value) {
-                    out.padding.apply(&v.non_negative());
-                }
-            }
-            "padding-top" => set_edge_value(&mut out.padding.top, value),
-            "padding-right" => set_edge_value(&mut out.padding.right, value),
-            "padding-bottom" => set_edge_value(&mut out.padding.bottom, value),
-            "padding-left" => set_edge_value(&mut out.padding.left, value),
-            "border" => apply_border_shorthand(value, &mut out),
-            "border-width" => {
-                if let Some(v) = parse_edges(value) {
-                    out.border_width.apply(&v.non_negative());
-                }
-            }
-            "border-color" => {
-                if let Some(v) = parse_color(value) {
-                    out.border_color = Some(v);
-                }
-            }
-            "border-top" => apply_border_side_shorthand(value, &mut out, EdgeSide::Top),
-            "border-right" => apply_border_side_shorthand(value, &mut out, EdgeSide::Right),
-            "border-bottom" => apply_border_side_shorthand(value, &mut out, EdgeSide::Bottom),
-            "border-left" => apply_border_side_shorthand(value, &mut out, EdgeSide::Left),
-            "border-top-width" => set_edge_value(&mut out.border_width.top, value),
-            "border-right-width" => set_edge_value(&mut out.border_width.right, value),
-            "border-bottom-width" => set_edge_value(&mut out.border_width.bottom, value),
-            "border-left-width" => set_edge_value(&mut out.border_width.left, value),
-            _ => {}
+        apply_named_declaration(&name, value, &mut out);
+        if is_mdn_reference_css_property(&name) {
+            out.raw_css.insert(name, value.to_owned());
         }
     }
 
+    apply_raw_css_aliases(&mut out);
     out
+}
+
+fn apply_named_declaration(name: &str, value: &str, out: &mut StyleProps) {
+    match name {
+        "display" => {
+            if let Some(v) = parse_display(value) {
+                out.display = Some(v);
+            }
+        }
+        "visibility" => {
+            if let Some(v) = parse_visibility_hidden(value) {
+                out.visibility_hidden = Some(v);
+            }
+        }
+        "opacity" => {
+            if let Some(v) = parse_opacity(value) {
+                out.opacity = Some(v);
+            }
+        }
+        "text-align" => {
+            if let Some(v) = parse_text_align(value) {
+                out.text_align = Some(v);
+            }
+        }
+        "color" => {
+            if let Some(v) = parse_color(value) {
+                out.color = Some(v);
+            }
+        }
+        "background" | "background-color" => {
+            if let Some(v) = parse_color(value) {
+                out.bg = Some(v);
+            }
+        }
+        "font-size" => {
+            if let Some(v) = parse_length(value) {
+                out.font_size = Some(v.max(6.0));
+            }
+        }
+        "font-family" => {
+            if let Some(v) = parse_font_family(value) {
+                out.font_family = Some(v);
+            }
+        }
+        "font" => {
+            apply_font_shorthand(value, out);
+        }
+        "line-height" => {
+            if let Some(v) = parse_line_height(value) {
+                out.line_height = Some(v.max(0.0));
+            }
+        }
+        "flex-direction" => {
+            if let Some(v) = parse_flex_direction(value) {
+                out.flex_direction = Some(v);
+            }
+        }
+        "justify-content" => {
+            if let Some(v) = parse_justify_content(value) {
+                out.justify_content = Some(v);
+            }
+        }
+        "align-items" => {
+            if let Some(v) = parse_align_items(value) {
+                out.align_items = Some(v);
+            }
+        }
+        "gap" | "row-gap" | "column-gap" => {
+            if let Some(v) = parse_length(value) {
+                out.gap = Some(v.max(0.0));
+            }
+        }
+        "font-weight" => {
+            if let Some(v) = parse_font_weight(value) {
+                out.bold = Some(v);
+            }
+        }
+        "font-style" => {
+            if let Some(v) = parse_font_style(value) {
+                out.italic = Some(v);
+            }
+        }
+        "text-decoration" | "text-decoration-line" => {
+            apply_text_decoration(value, out);
+        }
+        "vertical-align" => {
+            if let Some(v) = parse_vertical_align(value) {
+                out.script = Some(v);
+            }
+        }
+        "width" => {
+            if let Some(v) = parse_length(value) {
+                out.width = Some(v.max(1.0));
+            } else if let Some(percent) = parse_percentage(value) {
+                out.width_percent = Some(percent);
+            }
+        }
+        "height" => {
+            if let Some(v) = parse_length(value) {
+                out.height = Some(v.max(1.0));
+            }
+        }
+        "min-width" => {
+            if let Some(v) = parse_length(value) {
+                out.min_width = Some(v.max(0.0));
+            }
+        }
+        "max-width" => {
+            if let Some(v) = parse_length(value) {
+                out.max_width = Some(v.max(0.0));
+            }
+        }
+        "margin" => {
+            if let Some(v) = parse_margin_edges(value) {
+                out.margin.apply(&v.non_negative());
+            }
+        }
+        "margin-top" => set_margin_edge_value(&mut out.margin.top, value),
+        "margin-right" => set_margin_edge_value(&mut out.margin.right, value),
+        "margin-bottom" => set_margin_edge_value(&mut out.margin.bottom, value),
+        "margin-left" => set_margin_edge_value(&mut out.margin.left, value),
+        "padding" => {
+            if let Some(v) = parse_edges(value) {
+                out.padding.apply(&v.non_negative());
+            }
+        }
+        "padding-top" => set_edge_value(&mut out.padding.top, value),
+        "padding-right" => set_edge_value(&mut out.padding.right, value),
+        "padding-bottom" => set_edge_value(&mut out.padding.bottom, value),
+        "padding-left" => set_edge_value(&mut out.padding.left, value),
+        "border" => apply_border_shorthand(value, out),
+        "border-width" => {
+            if let Some(v) = parse_edges(value) {
+                out.border_width.apply(&v.non_negative());
+            }
+        }
+        "border-color" => {
+            if let Some(v) = parse_color(value) {
+                out.border_color = Some(v);
+            }
+        }
+        "border-top" => apply_border_side_shorthand(value, out, EdgeSide::Top),
+        "border-right" => apply_border_side_shorthand(value, out, EdgeSide::Right),
+        "border-bottom" => apply_border_side_shorthand(value, out, EdgeSide::Bottom),
+        "border-left" => apply_border_side_shorthand(value, out, EdgeSide::Left),
+        "border-top-width" => set_edge_value(&mut out.border_width.top, value),
+        "border-right-width" => set_edge_value(&mut out.border_width.right, value),
+        "border-bottom-width" => set_edge_value(&mut out.border_width.bottom, value),
+        "border-left-width" => set_edge_value(&mut out.border_width.left, value),
+        _ => {}
+    }
+}
+
+fn apply_raw_css_aliases(style: &mut StyleProps) {
+    let raw_css = style.raw_css.clone();
+    let raw = |name: &str| raw_css_value(&raw_css, name).map(ToOwned::to_owned);
+
+    if style.text_transform.is_none()
+        && let Some(value) = raw("text-transform").as_deref().and_then(parse_text_transform)
+    {
+        style.text_transform = Some(value);
+    }
+
+    if style.white_space.is_none()
+        && let Some(value) = raw("white-space").as_deref().and_then(parse_white_space_mode)
+    {
+        style.white_space = Some(value);
+    }
+
+    if style.border_radius.is_none()
+        && let Some(value) = raw("border-radius").as_deref().and_then(parse_border_radius)
+    {
+        style.border_radius = Some(value);
+    }
+
+    if style.width.is_none() && style.width_percent.is_none() {
+        if let Some(value) = raw("inline-size") {
+            apply_width_like_value(style, value.as_str());
+        }
+    }
+    if style.height.is_none()
+        && let Some(value) = raw("block-size")
+            .as_deref()
+            .and_then(parse_non_negative_length)
+    {
+        style.height = Some(value.max(1.0));
+    }
+
+    if style.min_width.is_none()
+        && let Some(value) = raw("min-inline-size")
+            .as_deref()
+            .and_then(parse_non_negative_length)
+    {
+        style.min_width = Some(value);
+    }
+    if style.max_width.is_none()
+        && let Some(value) = raw("max-inline-size")
+            .as_deref()
+            .and_then(parse_non_negative_length)
+    {
+        style.max_width = Some(value);
+    }
+
+    if style.min_height.is_none() {
+        if let Some(value) = raw("min-height")
+            .or_else(|| raw("min-block-size"))
+            .as_deref()
+            .and_then(parse_non_negative_length)
+        {
+            style.min_height = Some(value);
+        }
+    }
+    if style.max_height.is_none() {
+        if let Some(value) = raw("max-height")
+            .or_else(|| raw("max-block-size"))
+            .as_deref()
+            .and_then(parse_non_negative_length)
+        {
+            style.max_height = Some(value);
+        }
+    }
+
+    if style.gap.is_none() {
+        let gap_value = raw("gap")
+            .or_else(|| raw("row-gap"))
+            .or_else(|| raw("column-gap"))
+            .as_deref()
+            .and_then(parse_non_negative_length_from_first_token);
+        if let Some(value) = gap_value {
+            style.gap = Some(value);
+        }
+    }
+
+    if let Some(value) = raw("margin-inline").as_deref().and_then(parse_margin_pair) {
+        if style.margin.left.is_none() {
+            style.margin.left = Some(value.0);
+        }
+        if style.margin.right.is_none() {
+            style.margin.right = Some(value.1);
+        }
+    }
+    if let Some(value) = raw("margin-block").as_deref().and_then(parse_margin_pair) {
+        if style.margin.top.is_none() {
+            style.margin.top = Some(value.0);
+        }
+        if style.margin.bottom.is_none() {
+            style.margin.bottom = Some(value.1);
+        }
+    }
+    if style.margin.left.is_none()
+        && let Some(value) = raw("margin-inline-start")
+            .as_deref()
+            .and_then(parse_margin_length)
+    {
+        style.margin.left = Some(value);
+    }
+    if style.margin.right.is_none()
+        && let Some(value) = raw("margin-inline-end")
+            .as_deref()
+            .and_then(parse_margin_length)
+    {
+        style.margin.right = Some(value);
+    }
+    if style.margin.top.is_none()
+        && let Some(value) = raw("margin-block-start")
+            .as_deref()
+            .and_then(parse_margin_length)
+    {
+        style.margin.top = Some(value);
+    }
+    if style.margin.bottom.is_none()
+        && let Some(value) = raw("margin-block-end")
+            .as_deref()
+            .and_then(parse_margin_length)
+    {
+        style.margin.bottom = Some(value);
+    }
+
+    if let Some(value) = raw("padding-inline").as_deref().and_then(parse_length_pair) {
+        if style.padding.left.is_none() {
+            style.padding.left = Some(value.0);
+        }
+        if style.padding.right.is_none() {
+            style.padding.right = Some(value.1);
+        }
+    }
+    if let Some(value) = raw("padding-block").as_deref().and_then(parse_length_pair) {
+        if style.padding.top.is_none() {
+            style.padding.top = Some(value.0);
+        }
+        if style.padding.bottom.is_none() {
+            style.padding.bottom = Some(value.1);
+        }
+    }
+    if style.padding.left.is_none()
+        && let Some(value) = raw("padding-inline-start")
+            .as_deref()
+            .and_then(parse_non_negative_length)
+    {
+        style.padding.left = Some(value);
+    }
+    if style.padding.right.is_none()
+        && let Some(value) = raw("padding-inline-end")
+            .as_deref()
+            .and_then(parse_non_negative_length)
+    {
+        style.padding.right = Some(value);
+    }
+    if style.padding.top.is_none()
+        && let Some(value) = raw("padding-block-start")
+            .as_deref()
+            .and_then(parse_non_negative_length)
+    {
+        style.padding.top = Some(value);
+    }
+    if style.padding.bottom.is_none()
+        && let Some(value) = raw("padding-block-end")
+            .as_deref()
+            .and_then(parse_non_negative_length)
+    {
+        style.padding.bottom = Some(value);
+    }
+
+    if let Some(value) = raw("border-inline-width").as_deref().and_then(parse_length_pair) {
+        if style.border_width.left.is_none() {
+            style.border_width.left = Some(value.0);
+        }
+        if style.border_width.right.is_none() {
+            style.border_width.right = Some(value.1);
+        }
+    }
+    if let Some(value) = raw("border-block-width").as_deref().and_then(parse_length_pair) {
+        if style.border_width.top.is_none() {
+            style.border_width.top = Some(value.0);
+        }
+        if style.border_width.bottom.is_none() {
+            style.border_width.bottom = Some(value.1);
+        }
+    }
+    if style.border_width.left.is_none()
+        && let Some(value) = raw("border-inline-start-width")
+            .as_deref()
+            .and_then(parse_non_negative_length)
+    {
+        style.border_width.left = Some(value);
+    }
+    if style.border_width.right.is_none()
+        && let Some(value) = raw("border-inline-end-width")
+            .as_deref()
+            .and_then(parse_non_negative_length)
+    {
+        style.border_width.right = Some(value);
+    }
+    if style.border_width.top.is_none()
+        && let Some(value) = raw("border-block-start-width")
+            .as_deref()
+            .and_then(parse_non_negative_length)
+    {
+        style.border_width.top = Some(value);
+    }
+    if style.border_width.bottom.is_none()
+        && let Some(value) = raw("border-block-end-width")
+            .as_deref()
+            .and_then(parse_non_negative_length)
+    {
+        style.border_width.bottom = Some(value);
+    }
+
+    if style.align_items.is_none() {
+        if let Some(value) = raw("place-items")
+            .as_deref()
+            .and_then(parse_first_token)
+            .and_then(parse_align_items)
+        {
+            style.align_items = Some(value);
+        } else if let Some(value) = raw("align-content")
+            .as_deref()
+            .and_then(parse_align_items)
+        {
+            style.align_items = Some(value);
+        }
+    }
+
+    if style.justify_content.is_none()
+        && let Some(value) = raw("place-content")
+            .as_deref()
+            .and_then(parse_second_or_first_token)
+            .and_then(parse_justify_content)
+    {
+        style.justify_content = Some(value);
+    }
+}
+
+fn raw_css_value<'a>(raw_css: &'a HashMap<String, String>, name: &str) -> Option<&'a str> {
+    raw_css
+        .get(name)
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn apply_width_like_value(style: &mut StyleProps, value: &str) {
+    if let Some(length) = parse_non_negative_length(value) {
+        style.width = Some(length.max(1.0));
+    } else if let Some(percent) = parse_percentage(value) {
+        style.width_percent = Some(percent);
+    }
+}
+
+fn parse_non_negative_length(value: &str) -> Option<f32> {
+    parse_length(value).map(|value| value.max(0.0))
+}
+
+fn parse_non_negative_length_from_first_token(value: &str) -> Option<f32> {
+    parse_first_token(value).and_then(parse_non_negative_length)
+}
+
+fn parse_length_pair(value: &str) -> Option<(f32, f32)> {
+    parse_pair_with(value, parse_non_negative_length)
+}
+
+fn parse_margin_pair(value: &str) -> Option<(f32, f32)> {
+    parse_pair_with(value, parse_margin_length)
+}
+
+fn parse_pair_with(value: &str, parser: fn(&str) -> Option<f32>) -> Option<(f32, f32)> {
+    let mut parts = value.split_ascii_whitespace();
+    let first = parts.next().and_then(parser)?;
+    let second = parts.next().and_then(parser).unwrap_or(first);
+    if parts.next().is_some() {
+        return None;
+    }
+    Some((first, second))
+}
+
+fn parse_first_token(value: &str) -> Option<&str> {
+    value
+        .split_ascii_whitespace()
+        .next()
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+}
+
+fn parse_second_or_first_token(value: &str) -> Option<&str> {
+    let mut parts = value
+        .split_ascii_whitespace()
+        .map(str::trim)
+        .filter(|token| !token.is_empty());
+    let first = parts.next()?;
+    Some(parts.next().unwrap_or(first))
+}
+
+fn parse_border_radius(value: &str) -> Option<f32> {
+    let first_group = value.split('/').next()?.trim();
+    let first_token = parse_first_token(first_group)?;
+    parse_non_negative_length(first_token)
+}
+
+fn parse_text_transform(value: &str) -> Option<TextTransform> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "none" => Some(TextTransform::None),
+        "uppercase" => Some(TextTransform::Uppercase),
+        "lowercase" => Some(TextTransform::Lowercase),
+        "capitalize" => Some(TextTransform::Capitalize),
+        _ => None,
+    }
+}
+
+fn parse_white_space_mode(value: &str) -> Option<WhiteSpaceMode> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "normal" => Some(WhiteSpaceMode::Normal),
+        "nowrap" => Some(WhiteSpaceMode::NoWrap),
+        "pre" => Some(WhiteSpaceMode::Pre),
+        "pre-wrap" => Some(WhiteSpaceMode::PreWrap),
+        "pre-line" => Some(WhiteSpaceMode::PreLine),
+        _ => None,
+    }
 }
 
 fn split_important(value: &str) -> (&str, bool) {
@@ -4988,6 +6135,34 @@ fn attr<'a>(el: &'a HtmlElement, name: &str) -> Option<&'a str> {
         .iter()
         .find(|(k, _)| k == name)
         .map(|(_, v)| v.as_str())
+}
+
+fn has_attr(el: &HtmlElement, name: &str) -> bool {
+    attr(el, name).is_some()
+}
+
+fn parse_usize_attr(el: &HtmlElement, name: &str) -> Option<usize> {
+    attr(el, name)
+        .and_then(|raw| raw.trim().parse::<isize>().ok())
+        .and_then(|value| usize::try_from(value).ok())
+}
+
+fn parse_background_resource_attr<'a>(el: &'a HtmlElement) -> Option<&'a str> {
+    attr(el, "background").filter(|value| !value.trim().is_empty())
+}
+
+fn truncate_text_to_max_chars(text: &mut String, max_chars: Option<usize>) {
+    let Some(max_chars) = max_chars.filter(|value| *value > 0) else {
+        return;
+    };
+
+    if text.chars().count() <= max_chars {
+        return;
+    }
+
+    let truncated = text.chars().take(max_chars).collect::<String>();
+    text.clear();
+    text.push_str(&truncated);
 }
 
 fn resolve_link(base_url: &str, href: &str) -> Option<String> {
@@ -5643,10 +6818,14 @@ fn is_block(tag: &str) -> bool {
 mod tests {
     use super::{
         AlignItems, Display, FlexDirection, FontFamilyChoice, HtmlDocument, HtmlElement, HtmlNode,
-        JustifyContent, MDN_REFERENCE_ELEMENTS, ScriptDescriptor, ScriptPosition, StyleProps,
-        StyleSheet, TextAlign, collapse_whitespace, decode_entities, find_first_element,
-        is_likely_screen_reader_only, is_mdn_reference_element, is_void, parse_color,
-        parse_css_rules, parse_declarations, resolve_link, selector_subject, style_for,
+        JustifyContent, MDN_REFERENCE_ATTRIBUTES, MDN_REFERENCE_ELEMENTS, ScriptDescriptor,
+        ScriptPosition, StyleProps, StyleSheet, TextAlign, TextEffects, TextTransform,
+        WhiteSpaceMode, collapse_whitespace, decode_entities, find_first_element,
+        is_likely_screen_reader_only, is_mdn_reference_attribute, is_mdn_reference_css_property,
+        is_mdn_reference_element, is_void, mdn_reference_css_properties,
+        normalize_text_for_render, ordered_list_marker, parse_color, parse_css_rules,
+        parse_declarations, parse_legacy_font_size, resolve_link, selector_subject, style_for,
+        unordered_list_marker,
     };
     use eframe::egui::Color32;
 
@@ -5665,6 +6844,59 @@ mod tests {
             assert!(
                 is_mdn_reference_element(tag),
                 "missing MDN element tag: {tag}"
+            );
+        }
+    }
+
+    #[test]
+    fn mdn_attribute_registry_is_wired() {
+        for attr in MDN_REFERENCE_ATTRIBUTES {
+            assert!(
+                is_mdn_reference_attribute(attr),
+                "missing MDN attribute: {attr}"
+            );
+        }
+    }
+
+    #[test]
+    fn mdn_css_property_registry_is_wired() {
+        let properties = mdn_reference_css_properties();
+        assert!(
+            properties.len() >= 500,
+            "expected large MDN CSS property list, got {}",
+            properties.len()
+        );
+        for property in properties {
+            assert!(
+                is_mdn_reference_css_property(property),
+                "missing MDN CSS property: {property}"
+            );
+        }
+    }
+
+    #[test]
+    fn recognizes_wildcard_and_event_handler_attributes() {
+        assert!(is_mdn_reference_attribute("data-user-id"));
+        assert!(is_mdn_reference_attribute("aria-label"));
+        assert!(is_mdn_reference_attribute("onclick"));
+        assert!(!is_mdn_reference_attribute("made-up-attr"));
+    }
+
+    #[test]
+    fn parses_all_mdn_reference_attributes_without_crashing() {
+        for attr in MDN_REFERENCE_ATTRIBUTES {
+            let attr_name = if *attr == "data-*" {
+                "data-probe"
+            } else {
+                attr
+            };
+            let html = format!("<html><body><div {attr_name}=\"x\"></div></body></html>");
+            let doc = HtmlDocument::parse(&html);
+            let div = find_first_element(&doc.root.children, "div")
+                .unwrap_or_else(|| panic!("missing div while parsing attr {attr_name}"));
+            assert!(
+                div.attrs.iter().any(|(name, _)| name == attr_name),
+                "attribute {attr_name} missing from parsed DOM"
             );
         }
     }
@@ -5800,6 +7032,32 @@ mod tests {
     }
 
     #[test]
+    fn keeps_unimplemented_mdn_properties_in_rule_declarations() {
+        let css = ".pane{scrollbar-gutter:stable both-edges;color:#111}";
+        let rules = parse_css_rules(css);
+        assert_eq!(rules.len(), 1);
+        assert!(
+            rules[0]
+                .declarations
+                .iter()
+                .any(|declaration| declaration.name == "scrollbar-gutter")
+        );
+    }
+
+    #[test]
+    fn drops_unknown_non_mdn_properties() {
+        let css = ".pane{made-up-css-prop:123;color:#111}";
+        let rules = parse_css_rules(css);
+        assert_eq!(rules.len(), 1);
+        assert!(
+            rules[0]
+                .declarations
+                .iter()
+                .all(|declaration| declaration.name != "made-up-css-prop")
+        );
+    }
+
+    #[test]
     fn parses_css_phase1_text_style() {
         let style = parse_declarations(
             "text-align:center;font-weight:700;font-style:italic;\
@@ -5880,6 +7138,45 @@ mod tests {
         assert_eq!(style.border_width.top, Some(2.0));
         assert_eq!(style.border_color, Some(Color32::from_rgb(16, 32, 48)));
         assert_eq!(style.line_height, Some(18.0));
+    }
+
+    #[test]
+    fn parses_logical_box_model_and_size_aliases() {
+        let style = parse_declarations(
+            "inline-size:50%;block-size:120px;\
+             min-block-size:40px;max-block-size:200px;\
+             margin-inline:10px 20px;padding-block:4px 8px;\
+             border-inline-width:3px 6px;",
+        );
+        assert_eq!(style.width_percent, Some(50.0));
+        assert_eq!(style.height, Some(120.0));
+        assert_eq!(style.min_height, Some(40.0));
+        assert_eq!(style.max_height, Some(200.0));
+        assert_eq!(style.margin.left, Some(10.0));
+        assert_eq!(style.margin.right, Some(20.0));
+        assert_eq!(style.padding.top, Some(4.0));
+        assert_eq!(style.padding.bottom, Some(8.0));
+        assert_eq!(style.border_width.left, Some(3.0));
+        assert_eq!(style.border_width.right, Some(6.0));
+    }
+
+    #[test]
+    fn parses_text_transform_whitespace_and_radius_aliases() {
+        let style = parse_declarations("text-transform:uppercase;white-space:pre-line;border-radius:12px;");
+        assert_eq!(style.text_transform, Some(TextTransform::Uppercase));
+        assert_eq!(style.white_space, Some(WhiteSpaceMode::PreLine));
+        assert_eq!(style.border_radius, Some(12.0));
+    }
+
+    #[test]
+    fn normalizes_text_with_white_space_and_transform() {
+        let style = StyleProps {
+            text_transform: Some(TextTransform::Uppercase),
+            white_space: Some(WhiteSpaceMode::PreLine),
+            ..StyleProps::default()
+        };
+        let rendered = normalize_text_for_render("hello   world\nnext\tline", &style, &TextEffects::default());
+        assert_eq!(rendered, "HELLO WORLD\nNEXT LINE");
     }
 
     #[test]
@@ -6125,6 +7422,31 @@ mod tests {
     }
 
     #[test]
+    fn raw_css_property_cascade_prefers_important() {
+        let sheet = StyleSheet {
+            rules: parse_css_rules(
+                ".pane { scrollbar-gutter: auto; } #hero { scrollbar-gutter: stable !important; }",
+            ),
+        };
+
+        let el = HtmlElement {
+            tag: "div".to_owned(),
+            attrs: vec![
+                ("id".to_owned(), "hero".to_owned()),
+                ("class".to_owned(), "pane".to_owned()),
+                ("style".to_owned(), "scrollbar-gutter:always".to_owned()),
+            ],
+            children: Vec::new(),
+        };
+
+        let style = style_for(&el, &sheet, &StyleProps::default(), &[]);
+        assert_eq!(
+            style.raw_css.get("scrollbar-gutter").map(String::as_str),
+            Some("stable")
+        );
+    }
+
+    #[test]
     fn script_raw_text_is_not_tokenized_as_dom_nodes() {
         let src = "<body><script>var t = '<div>bad</div>';</script><p>ok</p></body>";
         let doc = HtmlDocument::parse(src);
@@ -6158,6 +7480,69 @@ mod tests {
         };
         let style = style_for(&el, &sheet, &StyleProps::default(), &[]);
         assert_eq!(style.text_align, Some(TextAlign::Right));
+    }
+
+    #[test]
+    fn html_presentational_attributes_map_into_style() {
+        let sheet = StyleSheet::default();
+        let el = HtmlElement {
+            tag: "font".to_owned(),
+            attrs: vec![
+                ("align".to_owned(), "center".to_owned()),
+                ("bgcolor".to_owned(), "#101112".to_owned()),
+                ("color".to_owned(), "#f0f0f0".to_owned()),
+                ("width".to_owned(), "50%".to_owned()),
+                ("height".to_owned(), "120".to_owned()),
+                ("border".to_owned(), "2".to_owned()),
+                ("face".to_owned(), "Courier New".to_owned()),
+                ("size".to_owned(), "5".to_owned()),
+            ],
+            children: Vec::new(),
+        };
+        let style = style_for(&el, &sheet, &StyleProps::default(), &[]);
+        assert_eq!(style.text_align, Some(TextAlign::Center));
+        assert_eq!(style.bg, Some(Color32::from_rgb(16, 17, 18)));
+        assert_eq!(style.color, Some(Color32::from_rgb(240, 240, 240)));
+        assert_eq!(style.width_percent, Some(50.0));
+        assert_eq!(style.height, Some(120.0));
+        assert_eq!(style.border_width.top, Some(2.0));
+        assert_eq!(style.font_family, Some(FontFamilyChoice::Monospace));
+        assert_eq!(style.font_size, Some(24.0));
+    }
+
+    #[test]
+    fn parses_legacy_font_size_values() {
+        assert_eq!(parse_legacy_font_size("1"), Some(10.0));
+        assert_eq!(parse_legacy_font_size("3"), Some(16.0));
+        assert_eq!(parse_legacy_font_size("7"), Some(48.0));
+        assert_eq!(parse_legacy_font_size("+2"), Some(24.0));
+        assert_eq!(parse_legacy_font_size("-1"), Some(13.0));
+    }
+
+    #[test]
+    fn formats_list_markers_from_type_attributes() {
+        assert_eq!(ordered_list_marker(3, Some("1")), "3.");
+        assert_eq!(ordered_list_marker(3, Some("A")), "C.");
+        assert_eq!(ordered_list_marker(3, Some("a")), "c.");
+        assert_eq!(ordered_list_marker(4, Some("I")), "IV.");
+        assert_eq!(ordered_list_marker(4, Some("i")), "iv.");
+        assert_eq!(unordered_list_marker(Some("disc")), "\u{2022}");
+        assert_eq!(unordered_list_marker(Some("circle")), "\u{25E6}");
+        assert_eq!(unordered_list_marker(Some("square")), "\u{25AA}");
+    }
+
+    #[test]
+    fn collects_background_and_video_poster_resources() {
+        let src = "<html><body background=\"/bg.png\"><video poster=\"/poster.jpg\"></video></body></html>";
+        let doc = HtmlDocument::parse(src);
+        let manifest = doc.collect_subresources("https://example.com/base/index.html");
+        assert_eq!(
+            manifest.images,
+            vec![
+                "https://example.com/bg.png".to_owned(),
+                "https://example.com/poster.jpg".to_owned(),
+            ]
+        );
     }
 
     #[test]
@@ -6232,6 +7617,38 @@ mod tests {
         let wrong_ancestors = vec![selector_subject(&parent), selector_subject(&non_matching)];
         let wrong_style = style_for(&el, &sheet, &StyleProps::default(), &wrong_ancestors);
         assert_eq!(wrong_style.color, None);
+    }
+
+    #[test]
+    fn unsupported_pseudo_selectors_do_not_overmatch() {
+        let sheet = StyleSheet {
+            rules: parse_css_rules(".card:not(.active) { display:none; }"),
+        };
+
+        let el = HtmlElement {
+            tag: "div".to_owned(),
+            attrs: vec![("class".to_owned(), "card active".to_owned())],
+            children: Vec::new(),
+        };
+
+        let style = style_for(&el, &sheet, &StyleProps::default(), &[]);
+        assert_eq!(style.display, None);
+    }
+
+    #[test]
+    fn unsupported_attribute_selectors_do_not_overmatch() {
+        let sheet = StyleSheet {
+            rules: parse_css_rules(".card[data-state='hidden'] { display:none; }"),
+        };
+
+        let el = HtmlElement {
+            tag: "div".to_owned(),
+            attrs: vec![("class".to_owned(), "card".to_owned())],
+            children: Vec::new(),
+        };
+
+        let style = style_for(&el, &sheet, &StyleProps::default(), &[]);
+        assert_eq!(style.display, None);
     }
 
     fn collect_visible_text(nodes: &[HtmlNode]) -> String {

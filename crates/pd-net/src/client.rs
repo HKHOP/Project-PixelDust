@@ -527,6 +527,7 @@ fn parse_status_line(line: &str) -> BrowserResult<(HttpVersion, HttpStatusCode)>
     })?;
 
     let version = match version {
+        "HTTP/1.0" => HttpVersion::Http10,
         "HTTP/1.1" => HttpVersion::Http11,
         "HTTP/2" => HttpVersion::Http2,
         other => {
@@ -592,6 +593,7 @@ fn is_keep_alive(request: &HttpRequest, response: &HttpResponse) -> bool {
     }
 
     match response.version {
+        HttpVersion::Http10 => header_contains(&response.headers, "connection", "keep-alive"),
         HttpVersion::Http11 => true,
         HttpVersion::Http2 => true,
     }
@@ -725,6 +727,12 @@ mod tests {
     }
 
     #[test]
+    fn status_line_parser_handles_http_10() {
+        let parsed = parse_status_line("HTTP/1.0 200 OK");
+        assert!(parsed.is_ok());
+    }
+
+    #[test]
     fn detects_bodyless_status_codes() {
         assert!(status_disallows_body(101));
         assert!(status_disallows_body(204));
@@ -779,6 +787,36 @@ mod tests {
 
         assert_eq!(outcome.response.body, b"Wikipedia");
         assert!(outcome.reusable);
+    }
+
+    #[test]
+    fn http10_response_is_not_reused_without_keep_alive() {
+        let url = BrowserUrl::parse("http://localhost:3000/");
+        assert!(url.is_ok());
+        let url = match url {
+            Ok(value) => value,
+            Err(error) => panic!("{error}"),
+        };
+
+        let request = HttpRequest::builder(HttpMethod::Get, url).build();
+        assert!(request.is_ok());
+        let request = match request {
+            Ok(value) => value,
+            Err(error) => panic!("{error}"),
+        };
+
+        let raw = b"HTTP/1.0 200 OK\r\nContent-Length: 2\r\n\r\nok";
+        let mut stream = Cursor::new(raw.to_vec());
+        let outcome = read_response(&mut stream, &request);
+        assert!(outcome.is_ok());
+        let outcome = match outcome {
+            Ok(value) => value,
+            Err(error) => panic!("{error}"),
+        };
+
+        assert_eq!(outcome.response.status.as_u16(), 200);
+        assert_eq!(outcome.response.body, b"ok");
+        assert!(!outcome.reusable);
     }
 
     #[test]

@@ -312,9 +312,10 @@ fn fetch_with_redirects(
             return Ok(response);
         }
 
+        let request_policy = effective_tls_policy_for_request(policy, &current_url);
         let mut prepared = browser
             .network
-            .prepare_get_with_tls_policy(&current_url, policy)
+            .prepare_get_with_tls_policy(&current_url, &request_policy)
             .map_err(|error| error.to_string())?;
         attach_cookie_header(cache, &current_url, &mut prepared.request.headers)?;
 
@@ -386,6 +387,20 @@ fn fetch_with_redirects(
         maybe_store_cache_entry(cache, &fetched);
         return Ok(fetched);
     }
+}
+
+fn effective_tls_policy_for_request(
+    base: &pd_net::tls::StrictTlsPolicy,
+    request_url: &str,
+) -> pd_net::tls::StrictTlsPolicy {
+    let mut out = base.clone();
+    if is_local_network_url(request_url) {
+        // Local development endpoints commonly run over plain HTTP and/or without OCSP/SNI.
+        out.https_only_mode = false;
+        out.require_ocsp_stapling = false;
+        out.require_sni = false;
+    }
+    out
 }
 
 fn lookup_cache(cache: &Arc<Mutex<HttpCache>>, url: &str) -> CacheLookup {
@@ -1365,10 +1380,60 @@ pub(super) fn normalize_input_url(input: String) -> String {
     let candidate = if trimmed.contains("://") {
         trimmed.to_owned()
     } else {
-        format!("https://{trimmed}")
+        let default_scheme = if is_local_network_input(trimmed) {
+            "http"
+        } else {
+            "https"
+        };
+        format!("{default_scheme}://{trimmed}")
     };
 
     correct_known_host_typo(candidate)
+}
+
+fn is_local_network_input(input: &str) -> bool {
+    let probe = format!("http://{input}");
+    let Ok(parsed) = Url::parse(&probe) else {
+        return false;
+    };
+    parsed.host_str().is_some_and(is_local_network_host)
+}
+
+fn is_local_network_url(input: &str) -> bool {
+    let Ok(parsed) = Url::parse(input) else {
+        return false;
+    };
+    parsed.host_str().is_some_and(is_local_network_host)
+}
+
+fn is_local_network_host(host: &str) -> bool {
+    let normalized = host.trim().trim_end_matches('.').to_ascii_lowercase();
+    if normalized.is_empty() {
+        return false;
+    }
+
+    if normalized == "localhost"
+        || normalized.ends_with(".localhost")
+        || normalized.ends_with(".local")
+    {
+        return true;
+    }
+
+    let Ok(ip) = normalized.parse::<std::net::IpAddr>() else {
+        return false;
+    };
+
+    match ip {
+        std::net::IpAddr::V4(v4) => {
+            v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_unspecified()
+        }
+        std::net::IpAddr::V6(v6) => {
+            v6.is_loopback()
+                || v6.is_unique_local()
+                || v6.is_unicast_link_local()
+                || v6.is_unspecified()
+        }
+    }
 }
 
 fn correct_known_host_typo(candidate: String) -> String {

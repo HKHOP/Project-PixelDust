@@ -2,7 +2,8 @@
 mod tests {
     use super::{
         allow_page_script_source, allow_subresource_request, cookie_domain_matches,
-        decode_text_response, format_js_error, format_script_origin, normalize_input_url,
+        decode_text_response, effective_tls_policy_for_request, format_js_error,
+        format_script_origin, is_local_network_host, is_local_network_url, normalize_input_url,
         parse_charset_from_content_type, parse_charset_from_html_prefix, parse_set_cookie_header,
         same_navigation_target, same_origin, truncate_preview_text,
     };
@@ -46,6 +47,52 @@ mod tests {
     fn keeps_example_host_when_valid() {
         let normalized = normalize_input_url("https://example.com/".to_owned());
         assert_eq!(normalized, "https://example.com/");
+    }
+
+    #[test]
+    fn normalizes_localhost_without_scheme_to_http() {
+        let normalized = normalize_input_url("localhost:3000/docs".to_owned());
+        assert_eq!(normalized, "http://localhost:3000/docs");
+    }
+
+    #[test]
+    fn normalizes_lan_ip_without_scheme_to_http() {
+        let normalized = normalize_input_url("192.168.1.25:8080/status".to_owned());
+        assert_eq!(normalized, "http://192.168.1.25:8080/status");
+    }
+
+    #[test]
+    fn local_host_detection_covers_lan_and_loopback() {
+        assert!(is_local_network_host("localhost"));
+        assert!(is_local_network_host("127.0.0.1"));
+        assert!(is_local_network_host("192.168.10.5"));
+        assert!(is_local_network_host("10.0.0.7"));
+        assert!(is_local_network_host("172.16.20.4"));
+        assert!(is_local_network_host("fe80::1"));
+        assert!(!is_local_network_host("8.8.8.8"));
+        assert!(!is_local_network_host("example.com"));
+    }
+
+    #[test]
+    fn local_url_detection_works_for_localhost_and_lan() {
+        assert!(is_local_network_url("http://localhost:3000/"));
+        assert!(is_local_network_url("http://192.168.1.10:8080/"));
+        assert!(!is_local_network_url("https://example.com/"));
+    }
+
+    #[test]
+    fn request_tls_policy_relaxes_for_local_targets() {
+        let strict = pd_net::tls::StrictTlsPolicy::for_security_mode(true);
+
+        let local = effective_tls_policy_for_request(&strict, "http://localhost:3000/");
+        assert!(!local.https_only_mode);
+        assert!(!local.require_sni);
+        assert!(!local.require_ocsp_stapling);
+
+        let public = effective_tls_policy_for_request(&strict, "https://example.com/");
+        assert!(public.https_only_mode);
+        assert!(public.require_sni);
+        assert!(public.require_ocsp_stapling);
     }
 
     #[test]

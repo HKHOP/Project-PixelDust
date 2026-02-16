@@ -33,6 +33,7 @@ impl HttpMethod {
 /// HTTP protocol version.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HttpVersion {
+    Http10,
     Http11,
     Http2,
 }
@@ -40,6 +41,7 @@ pub enum HttpVersion {
 impl HttpVersion {
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::Http10 => "HTTP/1.0",
             Self::Http11 => "HTTP/1.1",
             Self::Http2 => "HTTP/2",
         }
