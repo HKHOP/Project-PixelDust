@@ -2981,13 +2981,15 @@ fn collect_subresources_from_nodes(
 
         match el.tag.as_str() {
             "img" => {
-                if let Some(src) = image_source_attr(el).and_then(|value| resolve_link(base_url, value))
+                if let Some(src) =
+                    image_source_attr(el).and_then(|value| resolve_link(base_url, value))
                 {
                     images.insert(src);
                 }
             }
             "source" => {
-                if let Some(src) = image_source_attr(el).and_then(|value| resolve_link(base_url, value))
+                if let Some(src) =
+                    image_source_attr(el).and_then(|value| resolve_link(base_url, value))
                 {
                     images.insert(src);
                 }
